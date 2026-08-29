@@ -8,7 +8,7 @@ export default defineConfig({
   },
   datasource: {
     url:
-      process.env.DATABASE_URL ??
+      process.env.DATABASE_URL?.trim() ||
       "postgresql://moneyos:moneyos@localhost:5432/moneyos?schema=public",
   },
 });

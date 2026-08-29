@@ -64,6 +64,18 @@ npm run dev
 
 The seed is idempotent and creates the same demo login shown above. Do not use the demo password outside local development.
 
+## Vercel Demo Deployment
+
+The mock-only demo can deploy without PostgreSQL. Set these project variables for a stable hosted deployment:
+
+```dotenv
+DEMO_MODE="true"
+SESSION_SECRET="generate-a-random-secret-of-at-least-32-characters"
+APP_URL="https://your-project.vercel.app"
+```
+
+Remove `DATABASE_URL` in demo mode. Blank or malformed optional values fail closed to the mock repository so a deployment cannot accidentally access real financial records. A built-in demo signing key keeps the public mock account usable when `SESSION_SECRET` is omitted, but an explicit random secret is strongly recommended for every persistent hosted deployment.
+
 ## Commands
 
 | Command | Purpose |
@@ -85,7 +97,7 @@ The seed is idempotent and creates the same demo login shown above. Do not use t
 | Variable | Required | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | When `DEMO_MODE=false` | PostgreSQL connection string; use TLS in production |
-| `SESSION_SECRET` | Production | At least 32 characters; sign demo sessions and protect session material |
+| `SESSION_SECRET` | PostgreSQL production | At least 32 characters; strongly recommended for hosted demo sessions |
 | `APP_URL` | Recommended | Canonical same-origin URL used by security checks |
 | `DEMO_MODE` | No | `true` uses mock providers; `false` uses PostgreSQL |
 

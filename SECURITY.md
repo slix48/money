@@ -17,8 +17,8 @@ MoneyOS handles sensitive financial metadata. This document describes implemente
 - PostgreSQL mode issues cryptographically random opaque session tokens and stores only their SHA-256 hashes.
 - Session cookies are `HttpOnly`, `SameSite=Lax`, path-scoped to `/`, and `Secure` in production.
 - Session responses use `Cache-Control: no-store`.
-- Demo mode uses a signed HMAC session without a database. That mechanism is for local demo use only.
-- Production requires a `SESSION_SECRET` of at least 32 characters.
+- Demo mode uses a signed HMAC session without a database. Its public credentials and mock dataset do not form a confidentiality boundary; hosted demos should still set a random `SESSION_SECRET`.
+- PostgreSQL-backed production requires a `SESSION_SECRET` of at least 32 characters.
 
 `proxy.ts` only redirects obviously unauthenticated navigation. Protected pages and APIs revalidate sessions in the server-only DAL.
 

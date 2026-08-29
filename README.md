@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MoneyOS
 
-## Getting Started
+MoneyOS is a personal-finance intelligence and tracking application. It brings cash, spending, income, recurring charges, investments, goals, net worth, and grounded financial questions into one interface.
 
-First, run the development server:
+V1 is deliberately read-oriented. It does not move money, trade securities, cancel subscriptions, initiate payments, or provide autonomous financial advice.
+
+## Included In This Build
+
+- Premium responsive dashboard with light and dark themes
+- User-scoped accounts, transactions, income streams, recurring charges, holdings, goals, snapshots, insights, and AI conversations
+- Deterministic cash flow, net worth, portfolio allocation, savings, and period-comparison calculations
+- Correct handling of pending transactions, refunds, transfers, credit-card payments, and investment contributions
+- Transaction search, filtering, sorting, detail editing, notes, categories, and recurring flags
+- Recurring-pattern detection and price-increase findings
+- Income, portfolio, goal, Money Flow, and What Changed views
+- Read-only financial AI tool registry with grounded calculation receipts
+- PostgreSQL and Prisma data path plus a provider-backed in-memory demo path
+- Argon2id authentication, hashed opaque production sessions, origin checks, validation, rate limiting, and authorization tests
+
+## Quick Start: Demo Mode
+
+Requirements: Node.js 20.9 or newer and npm.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Demo credentials:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```text
+Email:    demo@moneyos.local
+Password: moneyos-demo
+```
 
-## Learn More
+Demo mode is the default and requires no database or third-party credentials. It uses realistic, clearly labeled mock financial and market data. Demo mutations are held in memory and reset when the development server restarts.
 
-To learn more about Next.js, take a look at the following resources:
+## PostgreSQL Mode
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Start PostgreSQL. A local container definition is included:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+docker compose up -d
+```
 
-## Deploy on Vercel
+2. Copy `.env.example` to `.env.local` and set:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```dotenv
+DATABASE_URL="postgresql://moneyos:moneyos@localhost:5432/moneyos?schema=public"
+SESSION_SECRET="replace-with-a-random-secret-of-at-least-32-characters"
+APP_URL="http://localhost:3000"
+DEMO_MODE="false"
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+3. Apply the schema, seed the development account, and run the app:
+
+```bash
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
+
+The seed is idempotent and creates the same demo login shown above. Do not use the demo password outside local development.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the Next.js development server |
+| `npm run build` | Generate Prisma Client and create a production build |
+| `npm start` | Run the production build |
+| `npm run check` | Run type checking, linting, and unit tests |
+| `npm run test:coverage` | Run tests with coverage |
+| `npm run test:visual` | Exercise routes and workflows in a headless installed browser |
+| `npm run db:migrate` | Create/apply a Prisma development migration |
+| `npm run db:seed` | Seed realistic development data |
+| `npm run db:studio` | Open Prisma Studio |
+
+`test:visual` expects the app at `http://127.0.0.1:3000`. Override it with `MONEYOS_URL`. On Windows it defaults to installed Microsoft Edge; set `PLAYWRIGHT_EXECUTABLE_PATH` elsewhere or provide an installed Chrome channel.
+
+## Environment Variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | When `DEMO_MODE=false` | PostgreSQL connection string; use TLS in production |
+| `SESSION_SECRET` | Production | At least 32 characters; sign demo sessions and protect session material |
+| `APP_URL` | Recommended | Canonical same-origin URL used by security checks |
+| `DEMO_MODE` | No | `true` uses mock providers; `false` uses PostgreSQL |
+
+Only server-side modules read these values. Never expose financial-provider, database, session, or AI credentials through `NEXT_PUBLIC_*` variables.
+
+## Financial Semantics
+
+All monetary values are integer minor units (cents) in domain logic and database storage. Settled spending excludes pending charges, internal transfers, investment contributions, and credit-card payments. Refunds reduce the original spending category. Income excludes transfers. Investment contributions and withdrawals remain separate from market gain/loss.
+
+The assistant does not calculate by improvising prose. It selects an allowlisted read tool, receives a user-scoped structured result, and formats that result with calculation provenance.
+
+## Project Guides
+
+- [ARCHITECTURE.md](./ARCHITECTURE.md): boundaries, data flow, calculations, and provider design
+- [SECURITY.md](./SECURITY.md): threat model, controls, assumptions, and production checklist
+- [ROADMAP.md](./ROADMAP.md): phased product and regulatory path
+- [TODO.md](./TODO.md): integrations that require credentials, infrastructure, or regulated partners
+
+## V1 Limitations
+
+Mock bank and market providers are development fixtures, not live feeds. The deterministic assistant is not an investment adviser and does not guarantee outcomes. Rate limiting is process-local and must move to a distributed store before multi-instance deployment. See `SECURITY.md` and `TODO.md` before treating this build as production-ready financial infrastructure.

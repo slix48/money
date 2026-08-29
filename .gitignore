@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/artifacts
 
 # next.js
 /.next/
@@ -19,6 +20,9 @@
 
 # production
 /build
+
+# generated database client
+/src/generated/prisma
 
 # misc
 .DS_Store
@@ -29,9 +33,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+/dev-server.out
+/dev-server.err
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel

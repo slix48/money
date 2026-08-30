@@ -2,7 +2,7 @@ import "server-only";
 import { DEMO_EMAIL, DEMO_PASSWORD, DEMO_USER_ID } from "@/domain/demo-data";
 import type { UserSummary } from "@/domain/types";
 import { env } from "@/lib/env";
-import { verifyPassword } from "@/auth/password";
+import { verifyPasswordCredential } from "@/auth/password";
 import {
   constantTimeEqual,
   createOpaqueSessionToken,
@@ -37,7 +37,7 @@ export async function authenticateCredentials(
     where: { email: normalizedEmail },
     select: { id: true, name: true, email: true, isDemo: true, passwordHash: true },
   });
-  if (!user?.passwordHash || !(await verifyPassword(user.passwordHash, password))) return null;
+  if (!(await verifyPasswordCredential(user?.passwordHash, password)) || !user) return null;
   return { id: user.id, name: user.name, email: user.email, isDemo: user.isDemo };
 }
 

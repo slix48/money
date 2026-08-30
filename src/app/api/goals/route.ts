@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       targetDate: parsed.data.targetDate ? new Date(parsed.data.targetDate) : undefined,
       linkedAccountId: parsed.data.linkedAccountId ?? undefined,
       monthlyTargetCents: parsed.data.monthlyTargetCents,
+      notes: parsed.data.notes,
       color: parsed.data.color,
     });
     return NextResponse.json(goal, { status: 201, headers: { "Cache-Control": "no-store" } });

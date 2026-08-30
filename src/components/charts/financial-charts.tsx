@@ -29,6 +29,20 @@ const tooltipStyle = {
 
 const axisStyle = { fill: "var(--text-tertiary)", fontSize: 10 };
 
+function ChartFrame({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="accessible-chart" role="img" aria-label={label}>
+      {children}
+    </div>
+  );
+}
+
 export function NetWorthChart({
   data,
 }: {
@@ -40,8 +54,21 @@ export function NetWorthChart({
   }>;
 }) {
   const chartData = data.map((item) => ({ ...item, label: format(item.date, "MMM") }));
+  const accessibleLabel =
+    "Net worth and cash history. " +
+    chartData
+      .map(
+        (item) =>
+          item.label +
+          ": net worth " +
+          formatCurrency(item.netWorthCents) +
+          ", cash " +
+          formatCurrency(item.cashCents),
+      )
+      .join("; ");
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ChartFrame label={accessibleLabel}>
+      <ResponsiveContainer width="100%" height="100%">
       <LineChart data={chartData} margin={{ top: 12, right: 14, left: 4, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
         <XAxis dataKey="label" tick={axisStyle} tickLine={false} axisLine={false} />
@@ -78,7 +105,8 @@ export function NetWorthChart({
           isAnimationActive={false}
         />
       </LineChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </ChartFrame>
   );
 }
 
@@ -93,8 +121,21 @@ export function MonthlyCashChart({
   }>;
 }) {
   const chartData = data.map((item) => ({ ...item, label: format(item.date, "MMM") }));
+  const accessibleLabel =
+    "Monthly income and spending. " +
+    chartData
+      .map(
+        (item) =>
+          item.label +
+          ": income " +
+          formatCurrency(item.incomeCents) +
+          ", spending " +
+          formatCurrency(item.spendingCents),
+      )
+      .join("; ");
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ChartFrame label={accessibleLabel}>
+      <ResponsiveContainer width="100%" height="100%">
       <BarChart data={chartData} margin={{ top: 12, right: 14, left: 4, bottom: 0 }} barGap={4}>
         <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
         <XAxis dataKey="label" tick={axisStyle} tickLine={false} axisLine={false} />
@@ -114,7 +155,8 @@ export function MonthlyCashChart({
         <Bar dataKey="incomeCents" name="Income" fill="var(--chart-1)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
         <Bar dataKey="spendingCents" name="Spending" fill="var(--chart-4)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
       </BarChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </ChartFrame>
   );
 }
 
@@ -133,8 +175,22 @@ export function ValueTrendChart<T extends { date: Date }>({
     ...item,
     label: format(item.date, "MMM"),
   }));
+  const accessibleLabel =
+    label +
+    " history. " +
+    chartData
+      .map(
+        (item) =>
+          item.label +
+          ": " +
+          formatCurrency(
+            Number((item as Record<string, unknown>)[valueKey] ?? 0),
+          ),
+      )
+      .join("; ");
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ChartFrame label={accessibleLabel}>
+      <ResponsiveContainer width="100%" height="100%">
       <LineChart data={chartData} margin={{ top: 12, right: 14, left: 4, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
         <XAxis dataKey="label" tick={axisStyle} tickLine={false} axisLine={false} />
@@ -142,7 +198,8 @@ export function ValueTrendChart<T extends { date: Date }>({
         <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatCurrency(Number(value)), label]} />
         <Line type="monotone" dataKey={valueKey} name={label} stroke={color} strokeWidth={2.1} dot={false} isAnimationActive={false} />
       </LineChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </ChartFrame>
   );
 }
 
@@ -160,8 +217,14 @@ export function DonutChart({
 }: {
   data: Array<{ name: string; valueCents: number }>;
 }) {
+  const accessibleLabel =
+    "Allocation. " +
+    data
+      .map((item) => item.name + ": " + formatCurrency(item.valueCents))
+      .join("; ");
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ChartFrame label={accessibleLabel}>
+      <ResponsiveContainer width="100%" height="100%">
       <PieChart>
         <Tooltip
           contentStyle={tooltipStyle}
@@ -185,6 +248,7 @@ export function DonutChart({
           ))}
         </Pie>
       </PieChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </ChartFrame>
   );
 }

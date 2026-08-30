@@ -16,7 +16,7 @@ const DEMO_QUOTES: Record<string, number> = {
   AAPL: 22_900,
   BND: 7_300,
   CASH: 100,
-  VFFVX: 23_840.91,
+  VFFVX: 23_841,
   VTI: 28_500,
   VXUS: 6_600,
 };

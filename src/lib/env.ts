@@ -5,6 +5,7 @@ const rawEnvironmentSchema = z.object({
   DATABASE_URL: z.string().optional(),
   SESSION_SECRET: z.string().optional(),
   APP_URL: z.string().optional(),
+  VERCEL_URL: z.string().optional(),
   DEMO_MODE: z.string().optional(),
 });
 
@@ -34,6 +35,14 @@ export function parseEnvironment(input: NodeJS.ProcessEnv) {
   const demoMode = !demoFlag.success || demoFlag.data === "true";
   const databaseUrl = urlSchema.safeParse(normalized(raw.data.DATABASE_URL));
   const appUrl = urlSchema.safeParse(normalized(raw.data.APP_URL));
+  const vercelUrl = normalized(raw.data.VERCEL_URL);
+  const vercelAppUrl = urlSchema.safeParse(
+    vercelUrl
+      ? vercelUrl.startsWith("http://") || vercelUrl.startsWith("https://")
+        ? vercelUrl
+        : "https://" + vercelUrl
+      : undefined,
+  );
   const sessionSecret = sessionSecretSchema.safeParse(normalized(raw.data.SESSION_SECRET));
 
   if (!demoMode) {
@@ -49,13 +58,27 @@ export function parseEnvironment(input: NodeJS.ProcessEnv) {
     if (raw.data.NODE_ENV === "production" && !sessionSecret.success) {
       configurationError("SESSION_SECRET", "is required in production when DEMO_MODE=false");
     }
+    if (
+      raw.data.NODE_ENV === "production" &&
+      !appUrl.success &&
+      !vercelAppUrl.success
+    ) {
+      configurationError(
+        "APP_URL",
+        "is required in production when DEMO_MODE=false",
+      );
+    }
   }
 
   return {
     NODE_ENV: raw.data.NODE_ENV,
     DATABASE_URL: databaseUrl.success ? databaseUrl.data : undefined,
     SESSION_SECRET: sessionSecret.success ? sessionSecret.data : undefined,
-    APP_URL: appUrl.success ? appUrl.data : DEFAULT_APP_URL,
+    APP_URL: appUrl.success
+      ? appUrl.data
+      : vercelAppUrl.success
+        ? vercelAppUrl.data
+        : DEFAULT_APP_URL,
     DEMO_MODE: demoMode ? "true" as const : "false" as const,
     demoMode,
     sessionSecret: sessionSecret.success ? sessionSecret.data : DEMO_SESSION_SECRET,

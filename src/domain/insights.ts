@@ -1,5 +1,8 @@
 import {
+  calculateGoalProgress,
+  calculateNetWorth,
   calculatePeriodSummary,
+  calculatePortfolio,
   comparePeriods,
   getMonthRange,
   getSubscriptionPriceChanges,
@@ -16,7 +19,11 @@ export interface InsightFinding {
     | "SUBSCRIPTION_CHANGE"
     | "INVESTMENT_CONTRIBUTION"
     | "NET_WORTH_CHANGE"
-    | "CASH_FLOW";
+    | "CASH_FLOW"
+    | "LARGE_TRANSACTION"
+    | "UPCOMING_RENEWAL"
+    | "PORTFOLIO_CONCENTRATION"
+    | "GOAL_PROGRESS";
   severity: "INFO" | "POSITIVE" | "ATTENTION";
   title: string;
   body: string;
@@ -102,7 +109,7 @@ export function generateInsights(
     });
   }
 
-  for (const change of getSubscriptionPriceChanges(snapshot.recurring)) {
+  for (const change of getSubscriptionPriceChanges(snapshot.recurring).slice(0, 2)) {
     findings.push({
       id: `bill-${change.id}`,
       type: change.isSubscription ? "SUBSCRIPTION_CHANGE" : "BILL_CHANGE",
@@ -125,7 +132,7 @@ export function generateInsights(
       body: "Contributions are shown separately from market gains and dividends.",
       amountCents: comparison.current.investmentContributionsCents,
       href: "/investments",
-      score: 75,
+      score: 86,
     });
   }
 
@@ -164,7 +171,217 @@ export function generateInsights(
     });
   }
 
+  const currentExpenses = snapshot.transactions
+    .filter(
+      (transaction) =>
+        !transaction.isPending &&
+        transaction.transactionType === "EXPENSE" &&
+        transaction.date >= getMonthRange(anchor).from &&
+        transaction.date <= getMonthRange(anchor).to,
+    )
+    .sort((left, right) => Math.abs(right.amountCents) - Math.abs(left.amountCents));
+  const largestExpense = currentExpenses[0];
+  if (largestExpense && Math.abs(largestExpense.amountCents) >= 50_000) {
+    findings.push({
+      id: "large-transaction-" + largestExpense.id,
+      type: "LARGE_TRANSACTION",
+      severity: "ATTENTION",
+      title: "Large transaction at " + largestExpense.merchant,
+      body:
+        formatCurrency(Math.abs(largestExpense.amountCents), true) +
+        " settled on " +
+        largestExpense.date.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }) +
+        ".",
+      amountCents: Math.abs(largestExpense.amountCents),
+      href: "/transactions",
+      score: 89,
+    });
+  }
+
+  const upcoming = snapshot.recurring
+    .filter(
+      (item) =>
+        item.status === "ACTIVE" &&
+        item.nextEstimatedDate &&
+        item.nextEstimatedDate >= anchor &&
+        item.nextEstimatedDate.getTime() - anchor.getTime() <= 7 * 86_400_000,
+    )
+    .sort(
+      (left, right) =>
+        left.nextEstimatedDate!.getTime() - right.nextEstimatedDate!.getTime(),
+    )[0];
+  if (upcoming) {
+    findings.push({
+      id: "upcoming-" + upcoming.id,
+      type: "UPCOMING_RENEWAL",
+      severity: "INFO",
+      title: upcoming.merchant + " is approaching",
+      body:
+        formatCurrency(upcoming.amountCents) +
+        " is estimated on " +
+        upcoming.nextEstimatedDate!.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }) +
+        ".",
+      amountCents: upcoming.amountCents,
+      href: "/recurring",
+      score: 68,
+    });
+  }
+
+  const portfolio = calculatePortfolio(snapshot.holdings);
+  if (portfolio.concentration === "CONCENTRATED" && portfolio.largestPosition) {
+    findings.push({
+      id: "portfolio-concentration",
+      type: "PORTFOLIO_CONCENTRATION",
+      severity: "INFO",
+      title: "Portfolio concentration is elevated",
+      body:
+        portfolio.largestPosition.ticker +
+        " is " +
+        formatPercent(portfolio.largestPosition.weight) +
+        " and the top five positions are " +
+        formatPercent(portfolio.topFiveWeight) +
+        ".",
+      href: "/investments",
+      score: 70,
+    });
+  }
+
+  const milestone = snapshot.goals
+    .map((goal) =>
+      calculateGoalProgress(goal, anchor, snapshot.goalContributions),
+    )
+    .find((goal) => goal.progress >= 0.5 && goal.progress < 0.6);
+  if (milestone) {
+    findings.push({
+      id: "goal-milestone-" + milestone.id,
+      type: "GOAL_PROGRESS",
+      severity: "POSITIVE",
+      title: milestone.name + " passed the halfway mark",
+      body:
+        formatCurrency(milestone.currentAmountCents, true) +
+        " of " +
+        formatCurrency(milestone.targetAmountCents, true) +
+        " is funded.",
+      href: "/goals",
+      score: 66,
+    });
+  }
+
   return findings.sort((a, b) => b.score - a.score).slice(0, 6);
+}
+
+export interface FinancialHealthIndicator {
+  id: string;
+  label: string;
+  value: string;
+  detail: string;
+  sentiment: "POSITIVE" | "ATTENTION" | "NEUTRAL";
+  href: string;
+}
+
+export function getFinancialHealthIndicators(
+  snapshot: FinancialSnapshot,
+  anchor = snapshot.generatedAt,
+): FinancialHealthIndicator[] {
+  const comparison = comparePeriods(
+    snapshot,
+    getMonthRange(anchor),
+    getMonthRange(anchor, 1),
+  );
+  const worth = calculateNetWorth(snapshot.accounts);
+  const emergency = snapshot.goals.find(
+    (goal) => goal.type === "EMERGENCY_FUND",
+  );
+  const history = [...snapshot.netWorthHistory].sort(
+    (left, right) => left.date.getTime() - right.date.getTime(),
+  );
+  const latest = history.at(-1);
+  const prior = history.at(-2);
+  const debtChange = latest && prior ? latest.debtCents - prior.debtCents : 0;
+  const worthChange =
+    latest && prior ? latest.netWorthCents - prior.netWorthCents : 0;
+  const recurringMonthly = snapshot.recurring
+    .filter((item) => item.status === "ACTIVE")
+    .reduce((sum, item) => sum + item.annualizedCents / 12, 0);
+
+  return [
+    {
+      id: "cash-flow",
+      label: "Cash flow",
+      value: formatSignedCurrency(comparison.current.netSavingsCents, true),
+      detail: "Income minus spending and debt payments",
+      sentiment:
+        comparison.current.netSavingsCents >= 0 ? "POSITIVE" : "ATTENTION",
+      href: "/cash-flow",
+    },
+    {
+      id: "emergency",
+      label: "Emergency savings",
+      value: emergency
+        ? formatPercent(
+            emergency.currentAmountCents /
+              Math.max(1, emergency.targetAmountCents),
+          )
+        : "Not configured",
+      detail: emergency
+        ? formatCurrency(emergency.currentAmountCents, true) +
+          " of " +
+          formatCurrency(emergency.targetAmountCents, true)
+        : "Create an emergency fund goal",
+      sentiment:
+        emergency &&
+        emergency.currentAmountCents >= emergency.targetAmountCents
+          ? "POSITIVE"
+          : "NEUTRAL",
+      href: "/goals",
+    },
+    {
+      id: "debt",
+      label: "Debt trend",
+      value: formatSignedCurrency(debtChange, true),
+      detail: formatCurrency(worth.debtCents, true) + " currently tracked",
+      sentiment: debtChange <= 0 ? "POSITIVE" : "ATTENTION",
+      href: "/overview",
+    },
+    {
+      id: "savings",
+      label: "Savings trend",
+      value: formatPercent(comparison.current.savingsRate),
+      detail:
+        formatSignedCurrency(
+          comparison.current.netSavingsCents -
+            comparison.previous.netSavingsCents,
+          true,
+        ) + " versus last month",
+      sentiment:
+        comparison.current.netSavingsCents >= comparison.previous.netSavingsCents
+          ? "POSITIVE"
+          : "NEUTRAL",
+      href: "/changes",
+    },
+    {
+      id: "recurring",
+      label: "Recurring spending",
+      value: formatCurrency(recurringMonthly, true),
+      detail: "Active monthly equivalent",
+      sentiment: "NEUTRAL",
+      href: "/recurring",
+    },
+    {
+      id: "net-worth",
+      label: "Net-worth trend",
+      value: formatSignedCurrency(worthChange, true),
+      detail: "Latest stored monthly change",
+      sentiment: worthChange >= 0 ? "POSITIVE" : "ATTENTION",
+      href: "/overview",
+    },
+  ];
 }
 
 export function getWhatChanged(

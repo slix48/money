@@ -9,12 +9,21 @@ The roadmap preserves a strict separation between financial intelligence and reg
 - Add production observability, accessibility, privacy controls, exports, account recovery, MFA/passkeys, and distributed security controls.
 - Integrate an external model only through the permissioned read-tool layer with data-minimization and retention controls.
 
-Current repository scope: this phase has a functional V1 foundation with mock providers and a PostgreSQL path.
+Current repository scope: this phase has a connected V1 foundation with mock providers, tenant-enforced PostgreSQL schema, audited calculations, persistent transaction/recurring/income/goal workflows, investment analytics, attention/health summaries, scenario tools, and grounded read-only AI.
+
+Recommended next hardening work:
+
+- Run migration/repository integration tests against disposable PostgreSQL in CI.
+- Add paginated transaction read APIs and database-side dashboard aggregates before large real histories.
+- Add holding and investment-activity import/edit workflows with reconciliation and cost-basis quality states.
+- Add goal editing/deletion with explicit unlink rules and complete focus-trapped dialogs.
+- Add passkeys/MFA, recovery, session/device management, distributed limits, privacy export/deletion, and production observability.
+- Add a durable provider-sync queue and idempotent normalization/reconciliation pipeline before any real connection.
 
 ## Phase 2: Real Bank And Brokerage Connections
 
 - Add regulated data-aggregation partners behind `FinancialDataProvider`.
-- Add market-data and brokerage-position providers behind `MarketDataProvider` and ingestion adapters.
+- Add licensed market data and read-only brokerage sync behind `MarketDataProvider` and `BrokerageDataProvider`.
 - Implement verified webhooks, background synchronization, consent lifecycle, reconnect flows, deduplication, reconciliation, and provider health.
 - Preserve clear freshness labels and never describe delayed quotes as live.
 
@@ -26,6 +35,7 @@ This phase requires vendor contracts, privacy review, data-security assessment, 
 - Require an explicit preview and user confirmation for every action.
 - Add idempotency, policy checks, step-up authentication, immutable audit events, status tracking, rollback/exception handling, and provider reconciliation.
 - Keep the AI assistant outside the trusted execution path.
+- Persist and operationalize the existing proposal, permission, confirmation, result, and subscription-capability contracts only after approval.
 
 Cancellation availability depends on provider support, consumer-protection obligations, legal review, security assessment, and reliable operational escalation.
 

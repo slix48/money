@@ -45,6 +45,16 @@ describe("environment parsing", () => {
     expect(parsed.APP_URL).toBe("https://money.example.com");
   });
 
+  it("derives the canonical production origin from Vercel", () => {
+    const parsed = parseEnvironment({
+      NODE_ENV: "production",
+      DEMO_MODE: "true",
+      VERCEL_URL: "moneyos-preview.vercel.app",
+    });
+
+    expect(parsed.APP_URL).toBe("https://moneyos-preview.vercel.app");
+  });
+
   it("rejects an invalid database URL when PostgreSQL mode is explicit", () => {
     expect(() => parseEnvironment({
       NODE_ENV: "production",
@@ -61,5 +71,18 @@ describe("environment parsing", () => {
       SESSION_SECRET: "short",
       DEMO_MODE: "false",
     })).toThrow("SESSION_SECRET must contain at least 32 characters");
+  });
+
+  it("requires a canonical origin for PostgreSQL production mode", () => {
+    expect(() =>
+      parseEnvironment({
+        NODE_ENV: "production",
+        DATABASE_URL:
+          "postgresql://moneyos:secret@db.example.com:5432/moneyos",
+        SESSION_SECRET:
+          "a-production-session-secret-with-adequate-length",
+        DEMO_MODE: "false",
+      }),
+    ).toThrow("APP_URL is required");
   });
 });

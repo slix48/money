@@ -77,7 +77,7 @@ async function seed() {
           ? null
           : account.availableBalanceCents / 100,
       currency: account.currency,
-      isLiability: account.balanceCents < 0,
+      isLiability: account.isLiability,
       providerAccountId: account.id,
       source: account.source,
       connectionStatus: account.connectionStatus,
@@ -106,6 +106,7 @@ async function seed() {
       merchant: item.merchant,
       normalizedMerchant: item.merchant.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
       amount: item.amountCents / 100,
+      averageAmount: item.averageAmountCents / 100,
       previousAmount:
         item.previousAmountCents === undefined ? null : item.previousAmountCents / 100,
       frequency: item.frequency,
@@ -134,10 +135,14 @@ async function seed() {
       externalId: transaction.id,
       date: transaction.date,
       merchant: transaction.merchant,
+      rawMerchant: transaction.rawMerchant,
+      normalizedMerchant: transaction.normalizedMerchant,
       description: transaction.description,
+      rawDescription: transaction.rawDescription,
       amount: transaction.amountCents / 100,
       transactionType: transaction.transactionType,
       subcategory: transaction.subcategory,
+      incomeType: transaction.incomeType,
       isPending: transaction.isPending,
       isRecurring: transaction.isRecurring,
       notes: transaction.notes,
@@ -193,7 +198,13 @@ async function seed() {
       quantity: activity.quantity,
       price: activity.priceCents === undefined ? undefined : activity.priceCents / 100,
       amount: activity.amountCents / 100,
-      fees: 0,
+      fees: activity.feesCents / 100,
+      costBasis:
+        activity.costBasisCents === undefined ? undefined : activity.costBasisCents / 100,
+      realizedGain:
+        activity.realizedGainCents === undefined
+          ? undefined
+          : activity.realizedGainCents / 100,
     })),
   });
 
@@ -224,7 +235,20 @@ async function seed() {
       currentAmount: goal.currentAmountCents / 100,
       targetDate: goal.targetDate,
       monthlyTarget: goal.monthlyTargetCents / 100,
+      notes: goal.notes,
       color: goal.color,
+    })),
+  });
+
+  await prisma.goalContribution.createMany({
+    data: snapshot.goalContributions.map((contribution) => ({
+      id: contribution.id,
+      userId: contribution.userId,
+      goalId: contribution.goalId,
+      date: contribution.date,
+      amount: contribution.amountCents / 100,
+      source: contribution.source,
+      notes: contribution.notes,
     })),
   });
 }

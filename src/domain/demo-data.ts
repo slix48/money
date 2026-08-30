@@ -6,6 +6,7 @@ import {
   type TransactionRecord,
   type TransactionType,
 } from "@/domain/types";
+import { normalizeMerchant } from "@/domain/calculations";
 
 export const DEMO_USER_ID = "demo-user-moneyos";
 export const DEMO_EMAIL = "demo@moneyos.local";
@@ -54,7 +55,9 @@ interface TransactionInput {
   accountId?: string;
   linkedAccountId?: string;
   merchant: string;
+  rawMerchant?: string;
   description?: string;
+  rawDescription?: string;
   amountCents: number;
   transactionType: TransactionType;
   category: CategoryName;
@@ -81,7 +84,10 @@ function makeTransaction(
     linkedAccountId: input.linkedAccountId,
     date,
     merchant: input.merchant,
+    rawMerchant: input.rawMerchant ?? input.merchant,
+    normalizedMerchant: normalizeMerchant(input.merchant),
     description: input.description ?? input.merchant,
+    rawDescription: input.rawDescription ?? input.description ?? input.merchant,
     amountCents: input.amountCents,
     transactionType: input.transactionType,
     category: input.category,
@@ -258,7 +264,8 @@ function createTransactions(anchor: Date): TransactionRecord[] {
       transferPairId: `retire-${month}`,
     });
     add(17, "dining-2", {
-      merchant: "Sweetgreen",
+      merchant: "Chipotle",
+      rawMerchant: month % 2 === 0 ? "SQ *CHIPOTLE 1234" : "CHIPOTLE #2938",
       amountCents: -(2_180 + month * 60),
       transactionType: "EXPENSE",
       category: "Dining",
@@ -370,6 +377,15 @@ function createTransactions(anchor: Date): TransactionRecord[] {
         category: "Shopping",
         subcategory: "Refund",
       });
+      add(22, "amazon", {
+        merchant: "Amazon",
+        rawMerchant: "AMZN Mktp US*4N82Q",
+        description: "Household delivery",
+        amountCents: -12_800,
+        transactionType: "EXPENSE",
+        category: "Shopping",
+        subcategory: "Online shopping",
+      });
       add(28, "pending", {
         merchant: "Loro",
         amountCents: -6_240,
@@ -391,6 +407,17 @@ function createTransactions(anchor: Date): TransactionRecord[] {
         incomeType: "FREELANCE",
       });
     }
+
+    if (month >= 4) {
+      add(6, "cancelled-news", {
+        merchant: "News Daily",
+        amountCents: -1_200,
+        transactionType: "EXPENSE",
+        category: "Subscriptions",
+        subcategory: "Digital news",
+        isRecurring: true,
+      });
+    }
   }
 
   return transactions.sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -403,6 +430,7 @@ function createAccounts(anchor: Date): AccountRecord[] {
     connectionStatus: "CONNECTED" as const,
     source: "MOCK_PROVIDER" as const,
     lastUpdatedAt: anchor,
+    isLiability: false,
   };
 
   return [
@@ -430,6 +458,7 @@ function createAccounts(anchor: Date): AccountRecord[] {
       name: "Horizon Rewards",
       institution: "Horizon Financial",
       type: "CREDIT_CARD",
+      isLiability: true,
       balanceCents: -238_144,
       availableBalanceCents: 761_856,
     },
@@ -455,6 +484,7 @@ function createAccounts(anchor: Date): AccountRecord[] {
       name: "Student Loan",
       institution: "Federal Student Aid",
       type: "LOAN",
+      isLiability: true,
       balanceCents: -1_120_000,
     },
   ];
@@ -477,26 +507,34 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
     recurring: [
       ["rent", "Park & Pine Apartments", 185_000, undefined, "Housing", 2, false, 1],
       ["streambox", "Streambox", 1_899, 1_599, "Subscriptions", 3, true, 1],
-      ["spotify", "Spotify", 1_199, undefined, "Subscriptions", 4, true, 1],
+      ["spotify", "Spotify", 1_199, 1_099, "Subscriptions", 4, true, 1],
       ["internet", "MetroNet Fiber", 8_300, 6_500, "Utilities", 5, false, 1],
       ["phone", "T-Mobile", 7_400, undefined, "Utilities", 7, false, 1],
       ["cloud", "Cloudbox", 999, undefined, "Subscriptions", 10, true, 1],
       ["gym", "Form Athletics", 4_900, undefined, "Health", 14, true, 1],
       ["insurance", "Lemonade Insurance", 2_450, undefined, "Insurance", 18, false, 1],
       ["possible", "Adobe", 2_299, undefined, "Subscriptions", 27, true, 0.72],
+      ["cancelled", "News Daily", 1_200, undefined, "Subscriptions", 6, true, 0.96],
     ].map(([id, merchant, amount, previous, category, day, subscription, confidence]) => ({
       id: `rec-${String(id)}`,
       userId: DEMO_USER_ID,
       accountId: accountIds.credit,
       merchant: String(merchant),
       amountCents: Number(amount),
+      averageAmountCents: Number(amount),
       previousAmountCents: previous === undefined ? undefined : Number(previous),
       category: category as CategoryName,
       frequency: "MONTHLY" as const,
-      nextEstimatedDate: nextMonth(Number(day)),
-      lastChargeDate: currentMonth(Number(day)),
+      nextEstimatedDate: id === "cancelled" ? undefined : nextMonth(Number(day)),
+      lastChargeDate:
+        id === "cancelled" ? monthDate(anchor, 4, Number(day)) : currentMonth(Number(day)),
       annualizedCents: Number(amount) * 12,
-      status: id === "possible" ? ("POSSIBLE" as const) : ("ACTIVE" as const),
+      status:
+        id === "possible"
+          ? ("POSSIBLE" as const)
+          : id === "cancelled"
+            ? ("CANCELLED" as const)
+            : ("ACTIVE" as const),
       confidence: Number(confidence),
       isSubscription: Boolean(subscription),
     })),
@@ -555,7 +593,8 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
       priceAsOf: anchor,
       priceSource: "DEMO" as const,
     })),
-    investmentActivity: Array.from({ length: 6 }, (_, month) => [
+    investmentActivity: [
+      ...Array.from({ length: 6 }, (_, month) => [
       {
         id: `activity-brokerage-${month}`,
         userId: DEMO_USER_ID,
@@ -563,6 +602,7 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
         date: monthDate(anchor, month, 16),
         type: "CONTRIBUTION" as const,
         amountCents: month === 0 ? 40_000 : 35_000,
+        feesCents: 0,
       },
       {
         id: `activity-retirement-${month}`,
@@ -571,6 +611,7 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
         date: monthDate(anchor, month, 16),
         type: "CONTRIBUTION" as const,
         amountCents: month === 0 ? 30_000 : 25_000,
+        feesCents: 0,
       },
       {
         id: `activity-dividend-${month}`,
@@ -580,8 +621,54 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
         type: "DIVIDEND" as const,
         ticker: "VTI",
         amountCents: 4_500 + month * 120,
+        feesCents: 0,
       },
-    ]).flat(),
+      ]).flat(),
+      {
+        id: "activity-buy-vti-current",
+        userId: DEMO_USER_ID,
+        accountId: accountIds.brokerage,
+        date: currentMonth(17),
+        type: "BUY" as const,
+        ticker: "VTI",
+        quantity: 1.4,
+        priceCents: 28_500,
+        amountCents: 39_900,
+        feesCents: 0,
+      },
+      {
+        id: "activity-sell-aapl",
+        userId: DEMO_USER_ID,
+        accountId: accountIds.brokerage,
+        date: monthDate(anchor, 2, 20),
+        type: "SELL" as const,
+        ticker: "AAPL",
+        quantity: 0.5,
+        priceCents: 22_000,
+        amountCents: 11_000,
+        costBasisCents: 8_500,
+        realizedGainCents: 2_500,
+        feesCents: 100,
+      },
+      {
+        id: "activity-withdrawal",
+        userId: DEMO_USER_ID,
+        accountId: accountIds.brokerage,
+        date: monthDate(anchor, 3, 12),
+        type: "WITHDRAWAL" as const,
+        amountCents: 10_000,
+        feesCents: 0,
+      },
+      {
+        id: "activity-fee",
+        userId: DEMO_USER_ID,
+        accountId: accountIds.brokerage,
+        date: currentMonth(27),
+        type: "FEE" as const,
+        amountCents: 500,
+        feesCents: 0,
+      },
+    ],
     netWorthHistory: Array.from({ length: 7 }, (_, index) => {
       const monthsAgo = 6 - index;
       const cash = 2_160_000 + index * 61_500;
@@ -612,6 +699,7 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
         targetDate: monthDate(anchor, -18, 1),
         linkedAccountId: accountIds.savings,
         monthlyTargetCents: 50_000,
+        notes: "Keep this reserve separate from planned purchases.",
         color: "#3f826d",
       },
       {
@@ -623,6 +711,7 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
         currentAmountCents: 312_000,
         targetDate: monthDate(anchor, -9, 1),
         monthlyTargetCents: 32_000,
+        notes: "Flights and lodging.",
         color: "#547a9b",
       },
       {
@@ -634,8 +723,48 @@ export function createDemoSnapshot(anchor = new Date()): FinancialSnapshot {
         currentAmountCents: 1_280_000,
         targetDate: monthDate(anchor, -48, 1),
         monthlyTargetCents: 130_000,
+        notes: "Long-term cash down-payment target.",
         color: "#d19a48",
       },
+      {
+        id: "goal-car",
+        userId: DEMO_USER_ID,
+        type: "CAR",
+        name: "Car",
+        targetAmountCents: 2_400_000,
+        currentAmountCents: 650_000,
+        targetDate: monthDate(anchor, -16, 1),
+        monthlyTargetCents: 12_500,
+        notes: "Replacement vehicle fund.",
+        color: "#8d6b94",
+      },
+    ],
+    goalContributions: [
+      ...Array.from({ length: 6 }, (_, month) => ({
+        id: "goal-contribution-emergency-" + month,
+        userId: DEMO_USER_ID,
+        goalId: "goal-emergency",
+        date: monthDate(anchor, month, 24),
+        amountCents: month === 0 ? 50_000 : 40_000,
+        source: "TRANSFER" as const,
+        notes: "Monthly savings transfer",
+      })),
+      ...Array.from({ length: 6 }, (_, month) => ({
+        id: "goal-contribution-car-" + month,
+        userId: DEMO_USER_ID,
+        goalId: "goal-car",
+        date: monthDate(anchor, month, 25),
+        amountCents: 12_500,
+        source: "MANUAL" as const,
+      })),
+      ...Array.from({ length: 4 }, (_, month) => ({
+        id: "goal-contribution-vacation-" + month,
+        userId: DEMO_USER_ID,
+        goalId: "goal-vacation",
+        date: monthDate(anchor, month, 20),
+        amountCents: 32_000,
+        source: "MANUAL" as const,
+      })),
     ],
     generatedAt: anchor,
     dataSource: "DEMO",

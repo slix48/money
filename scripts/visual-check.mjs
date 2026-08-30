@@ -73,8 +73,15 @@ try {
   if (renderedCharts.length < 2 || renderedCharts.some((chart) => chart.marks < 3)) {
     throw new Error(`Overview chart audit failed: ${JSON.stringify(chartAudit)}`);
   }
+  const chartAlternatives = await page.locator('.accessible-chart[role="img"]').evaluateAll(
+    (charts) => charts.map((chart) => chart.getAttribute("aria-label")),
+  );
+  if (chartAlternatives.length < 2 || chartAlternatives.some((label) => !label || label.length < 20)) {
+    throw new Error("Overview charts are missing useful accessible summaries");
+  }
   report.desktop.overview = await pageHealth("overview desktop");
   report.desktop.charts = renderedCharts;
+  report.desktop.chartAlternatives = chartAlternatives.length;
   await page.screenshot({ path: artifactPath("overview-desktop.png"), fullPage: true });
 
   const routes = [
@@ -128,11 +135,17 @@ try {
   report.interactions.aiGrounding = "passed";
   await page.screenshot({ path: artifactPath("ai-grounded-answer.png"), fullPage: true });
 
-  const disabledCancellation = await page.goto(`${baseUrl}/recurring`, { waitUntil: "domcontentloaded" }).then(() =>
-    page.locator('button[disabled][title="Cancellation not available in V1"]').count(),
-  );
-  if (disabledCancellation < 1) throw new Error("V1 cancellation controls are not visibly disabled");
+  await page.goto(baseUrl + "/recurring", { waitUntil: "domcontentloaded" });
+  await page.getByText(/External cancellation is not available in V1/).waitFor({ state: "visible" });
+  const recurringStatus = page.getByLabel("Status for Streambox");
+  await recurringStatus.selectOption("CANCELLED");
+  await page.waitForFunction(() => {
+    const control = document.querySelector('[aria-label="Status for Streambox"]');
+    return control instanceof HTMLSelectElement && control.value === "CANCELLED";
+  });
+  await recurringStatus.selectOption("ACTIVE");
   report.interactions.actionBoundary = "passed";
+  report.interactions.recurringUpdate = "passed";
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${baseUrl}/overview`, { waitUntil: "domcontentloaded" });
@@ -157,11 +170,30 @@ try {
   report.interactions.mobileNavigation = "passed";
   await page.screenshot({ path: artifactPath("mobile-navigation.png") });
   await mobileNavigation.locator("aside.mobile-nav-panel").getByRole("button", { name: "Close navigation" }).click();
+  const mobileRoutes = [
+    "/transactions",
+    "/recurring",
+    "/investments",
+    "/goals",
+    "/ai",
+  ];
+  for (const route of mobileRoutes) {
+    await page.goto(baseUrl + route, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    report.mobile[route.slice(1)] = await pageHealth(route + " mobile");
+  }
+  await page.goto(baseUrl + "/overview", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Toggle color theme" }).click();
   await page.locator("html.dark").waitFor({ state: "attached" });
   report.interactions.darkMode = "passed";
   await page.screenshot({ path: artifactPath("overview-mobile-dark.png"), fullPage: true });
 
+  if (consoleErrors.length || pageErrors.length) {
+    throw new Error(
+      "Browser errors detected: " +
+        JSON.stringify({ consoleErrors, pageErrors }),
+    );
+  }
   await writeFile(new URL("visual-report.json", artifacts), JSON.stringify(report, null, 2));
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 } finally {

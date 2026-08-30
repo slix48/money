@@ -35,6 +35,40 @@ describe("financial AI tools", () => {
     });
   });
 
+  it("removes internal user identifiers from structured tool results", async () => {
+    const portfolio = await executeFinancialTool(context(), "getPortfolio", {});
+    const goals = await executeFinancialTool(context(), "getGoals", {});
+    const history = await executeFinancialTool(context(), "getNetWorthHistory", {});
+
+    expect(JSON.stringify([portfolio.data, goals.data, history.data])).not.toContain(
+      "userId",
+    );
+  });
+
+  it("normalizes provider signs for contribution and dividend receipts", async () => {
+    const snapshot = createDemoSnapshot(anchor);
+    snapshot.investmentActivity = snapshot.investmentActivity.map((item) =>
+      item.type === "CONTRIBUTION" || item.type === "DIVIDEND"
+        ? { ...item, amountCents: -Math.abs(item.amountCents) }
+        : item,
+    );
+    const signedContext = createFinancialToolContext(
+      DEMO_USER_ID,
+      new DemoFinancialRepository(snapshot),
+    );
+    const activity = await executeFinancialTool(
+      signedContext,
+      "getInvestmentActivity",
+      { monthsAgo: 0 },
+    );
+    const dividends = await executeFinancialTool(signedContext, "getDividends", {
+      monthsAgo: 0,
+    });
+
+    expect(activity.data).toMatchObject({ totalContributionsCents: 70_000 });
+    expect(dividends.data).toMatchObject({ totalCents: 4_500 });
+  });
+
   it("rejects tools outside the allowlist", async () => {
     await expect(
       executeFinancialTool(context(), "deleteTransactions" as FinancialToolName, {}),
@@ -52,22 +86,111 @@ describe("financial AI tools", () => {
 
     expect(reply.answer).toContain("$356.70");
     expect(reply.toolsUsed).toEqual(["getSpendingByCategory"]);
-    expect(reply.calculation).toContain("Dining transactions: $356.70");
+    expect(reply.calculation).toContain("Dining: $356.70");
   });
 
-  it("assesses a purchase without consuming the emergency-fund allocation", async () => {
+  it("returns purchase trade-offs without making the decision", async () => {
     const reply = await askFinancialAssistant(
       "Can I afford a $7,000 purchase without using my emergency fund?",
       context(),
     );
 
-    expect(reply.answer).toContain("would require");
-    expect(reply.answer).toContain("$285.78");
-    expect(reply.toolsUsed).toEqual([
-      "getAccountBalances",
-      "getGoals",
-      "calculateCashFlow",
+    expect(reply.answer).toContain("$25,290.22");
+    expect(reply.answer).toContain("$18,290.22");
+    expect(reply.answer).toContain("$11,709.78 below");
+    expect(reply.toolsUsed).toEqual(["calculatePurchaseScenario"]);
+    expect(reply.note).toContain("does not decide affordability");
+  });
+
+  it.each([
+    ["How much money do I have?", ["getAccounts", "getNetWorth"], "$99,438.78"],
+    ["Where did most of my money go this month?", ["getSpendingByCategory"], "settled spending"],
+    ["How much did I spend on food?", ["getSpendingByCategory"], "food and dining"],
+    ["How much did I spend at Amazon?", ["searchTransactions"], "$128.00"],
+    ["Why was my spending higher this month?", ["compareSpendingPeriods"], "largest increases"],
+    ["What subscriptions do I have?", ["getSubscriptions"], "active subscriptions"],
+    ["Did any subscription increase in price?", ["getSubscriptionChanges"], "Spotify increased"],
+    ["How much recurring spending do I have?", ["getRecurringExpenses"], "active recurring expenses"],
+    ["How much money did I make this month?", ["getIncome"], "$7,395.00"],
+    ["What are my income streams?", ["getIncomeStreams"], "Primary salary"],
+    ["How much did I actually save?", ["getCashFlow"], "Internal transfers"],
+    ["What is my net worth?", ["getNetWorth"], "$99,438.78"],
+    ["How has my net worth changed?", ["getNetWorth"], "previous snapshot"],
+    ["How much money have I contributed to investments?", ["getInvestmentContributions"], "$3,700.00"],
+    ["How much did my investments actually gain?", ["getInvestmentPerformance"], "$17,808.00"],
+    ["How much dividend income have I received?", ["getDividends"], "$288.00"],
+    ["What is my biggest stock position?", ["getPortfolio"], "largest position"],
+    ["What percentage of my portfolio is Apple?", ["getHolding"], "11.0%"],
+    ["Am I concentrated in a few investments?", ["getPortfolio"], "top five"],
+    ["How close am I to my car goal?", ["getGoals"], "27.1%"],
+    ["If I save $250/month, when will I reach my car goal?", ["calculateGoalScenario"], "70 months"],
+  ] as const)(
+    "grounds %s in the expected tool",
+    async (question, expectedTools, expectedText) => {
+      const reply = await askFinancialAssistant(question, context());
+
+      expect(reply.toolsUsed).toEqual(expectedTools);
+      expect(reply.answer).toContain(expectedText);
+      expect(reply.dataSource).toBe("DEMO");
+    },
+  );
+
+  it("searches normalized and raw merchant descriptions", async () => {
+    const result = await executeFinancialTool(context(), "searchTransactions", {
+      query: "SQ *CHIPOTLE",
+      monthsAgo: 0,
+      includePending: false,
+      limit: 10,
+    });
+
+    expect(result.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ merchant: "Chipotle", amountCents: -2_180 }),
+      ]),
+    );
+  });
+
+  it("calculates zero-return goal scenarios through an allowlisted tool", async () => {
+    const result = await executeFinancialTool(context(), "calculateGoalScenario", {
+      goalId: "goal-car",
+      monthlyContributionCents: 25_000,
+      annualReturnPercent: 0,
+    });
+
+    expect(result.data).toMatchObject({
+      monthsRemaining: 70,
+      annualReturnPercent: 0,
+    });
+  });
+
+  it("explains retained savings without subtracting investment contributions twice", async () => {
+    const reply = await askFinancialAssistant(
+      "How much did I actually save?",
+      context(),
+    );
+    const cashFlow = await executeFinancialTool(context(), "getCashFlow", {
+      monthsAgo: 0,
+    });
+    const summary = (
+      cashFlow.data as {
+        summary: {
+          incomeCents: number;
+          spendingCents: number;
+          debtPaymentsCents: number;
+          netSavingsCents: number;
+        };
+      }
+    ).summary;
+
+    expect(summary.netSavingsCents).toBe(
+      summary.incomeCents - summary.spendingCents - summary.debtPaymentsCents,
+    );
+    expect(reply.calculation).toEqual([
+      "$7,395.00 income",
+      "- $3,888.07 spending",
+      "- $300.00 debt payments",
+      "= $3,206.93 retained",
+      "$700.00 of retained savings allocated to investments",
     ]);
-    expect(reply.note).toContain("not financial advice");
   });
 });

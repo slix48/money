@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { hashPassword, verifyPassword } from "@/auth/password";
+import {
+  hashPassword,
+  verifyPassword,
+  verifyPasswordCredential,
+} from "@/auth/password";
 
 describe("password hashing", () => {
   it("hashes passwords with Argon2id and verifies without exposing the password", async () => {
@@ -10,5 +14,11 @@ describe("password hashing", () => {
     expect(passwordHash).not.toContain(password);
     await expect(verifyPassword(passwordHash, password)).resolves.toBe(true);
     await expect(verifyPassword(passwordHash, "wrong-password")).resolves.toBe(false);
+  });
+
+  it("performs a safe verification path when a credential record is absent", async () => {
+    await expect(
+      verifyPasswordCredential(undefined, "unknown-password"),
+    ).resolves.toBe(false);
   });
 });

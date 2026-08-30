@@ -52,16 +52,17 @@ export function isSameOrigin(request: Request): boolean {
   try {
     const originUrl = new URL(origin);
     const requestUrl = new URL(request.url);
-    const forwardedHost = request.headers.get("x-forwarded-host");
-    const host = forwardedHost ?? request.headers.get("host");
-    const forwardedProtocol = request.headers.get("x-forwarded-proto");
-    const allowedOrigins = new Set([
-      requestUrl.origin,
-      new URL(env.APP_URL).origin,
-    ]);
-    if (host && !/[\r\n]/.test(host)) {
-      const protocol = forwardedProtocol === "https" ? "https:" : requestUrl.protocol;
-      allowedOrigins.add(`${protocol}//${host}`);
+    const allowedOrigins = new Set([new URL(env.APP_URL).origin]);
+    if (env.NODE_ENV !== "production") {
+      const forwardedHost = request.headers.get("x-forwarded-host");
+      const host = forwardedHost ?? request.headers.get("host");
+      const forwardedProtocol = request.headers.get("x-forwarded-proto");
+      allowedOrigins.add(requestUrl.origin);
+      if (host && !/[\r\n]/.test(host)) {
+        const protocol =
+          forwardedProtocol === "https" ? "https:" : requestUrl.protocol;
+        allowedOrigins.add(protocol + "//" + host);
+      }
     }
     if (allowedOrigins.has(originUrl.origin)) return true;
 
@@ -85,6 +86,17 @@ export function requireSameOrigin(request: Request): NextResponse | null {
 }
 
 export async function readJsonBody<T>(request: Request, maxBytes = 16_384): Promise<T> {
+  const contentType = request.headers
+    .get("content-type")
+    ?.split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (
+    contentType !== "application/json" &&
+    !contentType?.endsWith("+json")
+  ) {
+    throw new Error("UNSUPPORTED_MEDIA_TYPE");
+  }
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > maxBytes) throw new Error("REQUEST_TOO_LARGE");
   const text = await request.text();
@@ -98,6 +110,12 @@ export function safeApiError(error: unknown): NextResponse {
   }
   if (error instanceof Error && error.message === "REQUEST_TOO_LARGE") {
     return NextResponse.json({ error: "Request is too large" }, { status: 413 });
+  }
+  if (error instanceof Error && error.message === "UNSUPPORTED_MEDIA_TYPE") {
+    return NextResponse.json(
+      { error: "Content-Type must be application/json" },
+      { status: 415 },
+    );
   }
   return NextResponse.json({ error: "Unable to complete the request" }, { status: 500 });
 }

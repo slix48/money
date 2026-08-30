@@ -35,6 +35,9 @@ export default async function CashFlowPage() {
     wants: spending.byCategory
       .filter((entry) => wants.has(entry.category))
       .map((entry) => ({ label: entry.category, amountCents: entry.amountCents, meta: "Settled spending" })),
+    "other-spending": spending.byCategory
+      .filter((entry) => !necessities.has(entry.category) && !wants.has(entry.category))
+      .map((entry) => ({ label: entry.category, amountCents: entry.amountCents, meta: "Settled spending" })),
     debt: currentTransactions
       .filter((transaction) => transaction.transactionType === "DEBT_PAYMENT")
       .map((transaction) => ({ label: transaction.merchant, amountCents: Math.abs(transaction.amountCents), meta: transaction.subcategory ?? "Debt payment" })),
@@ -52,7 +55,7 @@ export default async function CashFlowPage() {
       <PageHeader eyebrow="Allocation" title="Money flow" description="Where settled income went across living costs, debt reduction, cash savings, and investment contributions." />
       <section className="metric-strip">
         <div className="metric-cell"><span className="metric-label"><Landmark size={13} /> Income</span><strong className="metric-value">{formatCurrency(flow.incomeCents, true)}</strong><span className="metric-meta">Current month</span></div>
-        <div className="metric-cell"><span className="metric-label"><ReceiptText size={13} /> Spending</span><strong className="metric-value">{formatCurrency(flow.necessitiesCents + flow.wantsCents, true)}</strong><span className="metric-meta">Necessities and wants</span></div>
+        <div className="metric-cell"><span className="metric-label"><ReceiptText size={13} /> Spending</span><strong className="metric-value">{formatCurrency(flow.necessitiesCents + flow.wantsCents + flow.otherSpendingCents, true)}</strong><span className="metric-meta">Refunds already netted</span></div>
         <div className="metric-cell"><span className="metric-label"><PiggyBank size={13} /> Cash savings</span><strong className="metric-value">{formatCurrency(flow.cashSavingsCents, true)}</strong><span className="metric-meta">{formatPercent(flow.cashSavingsCents / Math.max(1, flow.incomeCents))} of income</span></div>
         <div className="metric-cell"><span className="metric-label"><TrendingUp size={13} /> Investments</span><strong className="metric-value">{formatCurrency(flow.investmentsCents, true)}</strong><span className="metric-meta">Contributions only</span></div>
       </section>

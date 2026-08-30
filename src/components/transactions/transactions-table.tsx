@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type {
   AccountRecord,
@@ -32,12 +33,17 @@ export function TransactionsTable({
   categories: CategoryName[];
   initialCategory?: string;
 }) {
+  const router = useRouter();
   const validInitialCategory = categories.includes(initialCategory as CategoryName)
     ? (initialCategory as CategoryName)
     : "ALL";
   const [transactions, setTransactions] = useState(initialTransactions);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<CategoryName | "ALL">(validInitialCategory);
+  const [accountId, setAccountId] = useState("ALL");
+  const [merchant, setMerchant] = useState("ALL");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [type, setType] = useState<TransactionRecord["transactionType"] | "ALL">("ALL");
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [sort, setSort] = useState<SortOption>("NEWEST");
@@ -49,6 +55,10 @@ export function TransactionsTable({
   const [saveError, setSaveError] = useState("");
   const [saved, setSaved] = useState(false);
   const accountMap = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
+  const merchants = useMemo(
+    () => [...new Set(transactions.map((transaction) => transaction.merchant))].sort(),
+    [transactions],
+  );
 
   const visible = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -57,8 +67,12 @@ export function TransactionsTable({
         const matchesQuery =
           !normalizedQuery ||
           transaction.merchant.toLowerCase().includes(normalizedQuery) ||
+          transaction.rawMerchant?.toLowerCase().includes(normalizedQuery) ||
           transaction.description.toLowerCase().includes(normalizedQuery) ||
+          transaction.rawDescription?.toLowerCase().includes(normalizedQuery) ||
           transaction.notes?.toLowerCase().includes(normalizedQuery);
+        const matchesAccount = accountId === "ALL" || transaction.accountId === accountId;
+        const matchesMerchant = merchant === "ALL" || transaction.merchant === merchant;
         const matchesCategory = category === "ALL" || transaction.category === category;
         const matchesType = type === "ALL" || transaction.transactionType === type;
         const matchesStatus =
@@ -66,7 +80,19 @@ export function TransactionsTable({
           (status === "SETTLED" && !transaction.isPending) ||
           (status === "PENDING" && transaction.isPending) ||
           (status === "RECURRING" && transaction.isRecurring);
-        return matchesQuery && matchesCategory && matchesType && matchesStatus;
+        const from = dateFrom ? new Date(dateFrom + "T00:00:00") : undefined;
+        const to = dateTo ? new Date(dateTo + "T23:59:59.999") : undefined;
+        const matchesDate =
+          (!from || transaction.date >= from) && (!to || transaction.date <= to);
+        return (
+          matchesQuery &&
+          matchesAccount &&
+          matchesMerchant &&
+          matchesCategory &&
+          matchesType &&
+          matchesStatus &&
+          matchesDate
+        );
       })
       .sort((left, right) => {
         if (sort === "OLDEST") return left.date.getTime() - right.date.getTime();
@@ -74,7 +100,18 @@ export function TransactionsTable({
         if (sort === "LOWEST") return Math.abs(left.amountCents) - Math.abs(right.amountCents);
         return right.date.getTime() - left.date.getTime();
       });
-  }, [transactions, query, category, type, status, sort]);
+  }, [
+    transactions,
+    query,
+    accountId,
+    merchant,
+    category,
+    type,
+    status,
+    dateFrom,
+    dateTo,
+    sort,
+  ]);
 
   const active = transactions.find((transaction) => transaction.id === activeId);
 
@@ -121,6 +158,7 @@ export function TransactionsTable({
         ),
       );
       setSaved(true);
+      router.refresh();
     } catch {
       setSaveError("Unable to reach MoneyOS. Try again.");
     } finally {
@@ -148,6 +186,24 @@ export function TransactionsTable({
             <Filter size={14} className="muted" />
             <select
               className="select-control"
+              value={accountId}
+              onChange={(event) => setAccountId(event.target.value)}
+              aria-label="Filter by account"
+            >
+              <option value="ALL">All accounts</option>
+              {accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}
+            </select>
+            <select
+              className="select-control"
+              value={merchant}
+              onChange={(event) => setMerchant(event.target.value)}
+              aria-label="Filter by merchant"
+            >
+              <option value="ALL">All merchants</option>
+              {merchants.map((name) => <option value={name} key={name}>{name}</option>)}
+            </select>
+            <select
+              className="select-control"
               value={category}
               onChange={(event) => setCategory(event.target.value as CategoryName | "ALL")}
               aria-label="Filter by category"
@@ -168,6 +224,8 @@ export function TransactionsTable({
               <option value="TRANSFER">Transfers</option>
               <option value="INVESTMENT_CONTRIBUTION">Contributions</option>
               <option value="DEBT_PAYMENT">Debt payments</option>
+              <option value="INVESTMENT_ACTIVITY">Investment activity</option>
+              <option value="ADJUSTMENT">Adjustments</option>
             </select>
             <select
               className="select-control"
@@ -180,6 +238,21 @@ export function TransactionsTable({
               <option value="PENDING">Pending</option>
               <option value="RECURRING">Recurring</option>
             </select>
+            <input
+              className="select-control date-control"
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+              aria-label="Transactions from date"
+            />
+            <input
+              className="select-control date-control"
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(event) => setDateTo(event.target.value)}
+              aria-label="Transactions through date"
+            />
             <SlidersHorizontal size={14} className="muted" />
             <select
               className="select-control"
@@ -196,15 +269,19 @@ export function TransactionsTable({
         </div>
         <div className="table-summary">
           <span>{visible.length} transaction{visible.length === 1 ? "" : "s"}</span>
-          {(category !== "ALL" || type !== "ALL" || status !== "ALL" || query) && (
+          {(accountId !== "ALL" || merchant !== "ALL" || category !== "ALL" || type !== "ALL" || status !== "ALL" || dateFrom || dateTo || query) && (
             <button
               type="button"
               className="button button-quiet"
               onClick={() => {
                 setQuery("");
+                setAccountId("ALL");
+                setMerchant("ALL");
                 setCategory("ALL");
                 setType("ALL");
                 setStatus("ALL");
+                setDateFrom("");
+                setDateTo("");
               }}
             >
               <X size={13} /> Clear filters
@@ -224,7 +301,10 @@ export function TransactionsTable({
                   tabIndex={0}
                   onClick={() => openTransaction(transaction)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") openTransaction(transaction);
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openTransaction(transaction);
+                    }
                   }}
                   aria-label={`View ${transaction.merchant} transaction`}
                 >
@@ -280,6 +360,8 @@ export function TransactionsTable({
                 <div><dt>Type</dt><dd>{titleCase(active.transactionType)}</dd></div>
                 <div><dt>Source</dt><dd>{titleCase(active.source)}</dd></div>
                 <div><dt>Description</dt><dd>{active.description}</dd></div>
+                {active.rawMerchant && active.rawMerchant !== active.merchant && <div><dt>Original merchant</dt><dd>{active.rawMerchant}</dd></div>}
+                {active.rawDescription && active.rawDescription !== active.description && <div><dt>Original description</dt><dd>{active.rawDescription}</dd></div>}
               </dl>
               <div className="drawer-divider" />
               <label className="field">

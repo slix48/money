@@ -26,7 +26,7 @@ import {
   calculatePortfolio,
   getMonthRange,
 } from "@/domain/calculations";
-import { generateInsights } from "@/domain/insights";
+import { generateInsights, getFinancialHealthIndicators } from "@/domain/insights";
 import { formatCurrency, formatPercent, formatSignedCurrency } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Overview" };
@@ -56,7 +56,10 @@ export default async function OverviewPage({
   const cashFlow = calculateCashFlow(snapshot, currentRange);
   const portfolio = calculatePortfolio(snapshot.holdings);
   const insights = generateInsights(snapshot);
-  const goals = snapshot.goals.map((goal) => calculateGoalProgress(goal, snapshot.generatedAt));
+  const goals = snapshot.goals.map((goal) =>
+    calculateGoalProgress(goal, snapshot.generatedAt, snapshot.goalContributions),
+  );
+  const health = getFinancialHealthIndicators(snapshot);
   const series = calculateMonthlySeries(snapshot, selectedRange.months);
   const netWorthHistory = snapshot.netWorthHistory.slice(-selectedRange.months);
   const latestWorth = snapshot.netWorthHistory.at(-1);
@@ -151,7 +154,7 @@ export default async function OverviewPage({
         </div>
         <div className="panel insights-panel">
           <div className="panel-header">
-            <div><h2>Financial insights</h2><p>Ranked by materiality</p></div>
+            <div><h2>Attention center</h2><p>Ranked by materiality</p></div>
             <Sparkles size={17} className="positive" />
           </div>
           <div className="insight-list">
@@ -163,6 +166,19 @@ export default async function OverviewPage({
               </Link>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="panel health-panel">
+        <div className="panel-header"><div><h2>Financial health</h2><p>Observable indicators, not a universal score</p></div></div>
+        <div className="health-grid">
+          {health.map((indicator) => (
+            <Link className={"health-indicator " + indicator.sentiment.toLowerCase()} href={indicator.href} key={indicator.id}>
+              <span>{indicator.label}</span>
+              <strong>{indicator.value}</strong>
+              <small>{indicator.detail}</small>
+            </Link>
+          ))}
         </div>
       </section>
 
@@ -232,7 +248,7 @@ export default async function OverviewPage({
 
       <section className="dashboard-grid equal">
         <div className="panel panel-padding">
-          <div className="section-heading"><div><h2>Goal progress</h2><p>Based on current contribution targets</p></div><Target size={17} className="muted" /></div>
+          <div className="section-heading"><div><h2>Goal progress</h2><p>Based on actual contribution pace when available</p></div><Target size={17} className="muted" /></div>
           <div className="goal-list">
             {goals.slice(0, 3).map((goal) => (
               <Link href="/goals" className="goal-row" key={goal.id}>
@@ -247,7 +263,7 @@ export default async function OverviewPage({
           <div className="section-heading"><div><h2>Portfolio snapshot</h2><p>Demo prices, not live quotes</p></div><ChartNoAxesCombined size={17} className="muted" /></div>
           <div className="portfolio-summary-value">
             <strong>{formatCurrency(portfolio.valueCents, true)}</strong>
-            <span className="positive">+{formatCurrency(portfolio.gainCents, true)} total gain</span>
+            <span className={portfolio.gainCents >= 0 ? "positive" : "negative"}>{formatSignedCurrency(portfolio.gainCents, true)} unrealized gain</span>
           </div>
           <div className="position-list">
             {portfolio.positions.slice(0, 4).map((position) => (

@@ -8,7 +8,7 @@ import {
   requireSameOrigin,
   safeApiError,
 } from "@/lib/security";
-import { transactionUpdateSchema } from "@/lib/validation";
+import { entityIdSchema, transactionUpdateSchema } from "@/lib/validation";
 
 export async function PATCH(
   request: Request,
@@ -31,9 +31,12 @@ export async function PATCH(
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid transaction update" }, { status: 400 });
     }
-    const { id } = await params;
+    const id = entityIdSchema.safeParse((await params).id);
+    if (!id.success) {
+      return NextResponse.json({ error: "Invalid transaction id" }, { status: 400 });
+    }
     const repository = await getFinancialRepository();
-    await repository.updateTransaction(user.id, id, parsed.data);
+    await repository.updateTransaction(user.id, id.data, parsed.data);
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof NotFoundError) {

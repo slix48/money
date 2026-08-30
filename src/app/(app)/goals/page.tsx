@@ -14,7 +14,7 @@ export default async function GoalsPage() {
   return (
     <div className="page-stack">
       <PageHeader eyebrow="Progress" title="Goals" description="Set concrete targets and estimate completion from your actual contribution pace." actions={<a className="button button-secondary" href="#goals"><Plus size={15} /> Add goal below</a>} />
-      <div id="goals"><GoalsView initialGoals={snapshot.goals} accounts={snapshot.accounts} anchor={snapshot.generatedAt} /></div>
+      <div id="goals"><GoalsView initialGoals={snapshot.goals} initialContributions={snapshot.goalContributions} accounts={snapshot.accounts} anchor={snapshot.generatedAt} /></div>
     </div>
   );
 }

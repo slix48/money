@@ -8,18 +8,19 @@ V1 is deliberately read-oriented. It does not move money, trade securities, canc
 
 - Premium responsive dashboard with light and dark themes
 - User-scoped accounts, transactions, income streams, recurring charges, holdings, goals, snapshots, insights, and AI conversations
-- Deterministic cash flow, net worth, portfolio allocation, savings, and period-comparison calculations
+- Audited cash flow, net worth, portfolio allocation, contribution/return separation, goals, recurring detection, and period comparisons
 - Correct handling of pending transactions, refunds, transfers, credit-card payments, and investment contributions
 - Transaction search, filtering, sorting, detail editing, notes, categories, and recurring flags
-- Recurring-pattern detection and price-increase findings
-- Income, portfolio, goal, Money Flow, and What Changed views
-- Read-only financial AI tool registry with grounded calculation receipts
-- PostgreSQL and Prisma data path plus a provider-backed in-memory demo path
-- Argon2id authentication, hashed opaque production sessions, origin checks, validation, rate limiting, and authorization tests
+- Cadence-aware recurring detection, subscription review controls, price-change annual impact, and attention ranking
+- Editable income streams, goal contribution history/scenarios, portfolio performance methodology, Money Flow, financial health, and What Changed
+- A 29-tool read-only financial AI registry with grounded calculation receipts and scenario tools
+- Cursor-ready bank/brokerage, market-data, external-AI, cancellation, and financial-action provider boundaries
+- PostgreSQL/Prisma plus a provider-backed in-memory demo path with several months of realistic activity
+- Argon2id authentication, hashed opaque production sessions, canonical-origin checks, validation, rate limiting, route/repository IDOR tests, and same-tenant database constraints
 
 ## Quick Start: Demo Mode
 
-Requirements: Node.js 20.9 or newer and npm.
+Requirements: Node.js 24 and npm.
 
 ```bash
 npm install
@@ -98,14 +99,14 @@ Remove `DATABASE_URL` in demo mode. Blank or malformed optional values fail clos
 | --- | --- | --- |
 | `DATABASE_URL` | When `DEMO_MODE=false` | PostgreSQL connection string; use TLS in production |
 | `SESSION_SECRET` | PostgreSQL production | At least 32 characters; strongly recommended for hosted demo sessions |
-| `APP_URL` | Recommended | Canonical same-origin URL used by security checks |
+| `APP_URL` | PostgreSQL production | Canonical same-origin URL used by security checks; Vercel deployments also derive it from `VERCEL_URL` |
 | `DEMO_MODE` | No | `true` uses mock providers; `false` uses PostgreSQL |
 
 Only server-side modules read these values. Never expose financial-provider, database, session, or AI credentials through `NEXT_PUBLIC_*` variables.
 
 ## Financial Semantics
 
-All monetary values are integer minor units (cents) in domain logic and database storage. Settled spending excludes pending charges, internal transfers, investment contributions, and credit-card payments. Refunds reduce the original spending category. Income excludes transfers. Investment contributions and withdrawals remain separate from market gain/loss.
+Domain calculations use integer minor units (cents). PostgreSQL stores Decimal major-currency values and repository adapters perform the boundary conversion. Settled spending excludes pending charges, internal transfers, investment contributions, and credit-card payments. Refunds reduce spending before the final total is floored at zero. Income excludes transfers. Investment contributions and withdrawals remain separate from market gain/loss.
 
 The assistant does not calculate by improvising prose. It selects an allowlisted read tool, receives a user-scoped structured result, and formats that result with calculation provenance.
 
@@ -113,6 +114,9 @@ The assistant does not calculate by improvising prose. It selects an allowlisted
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md): boundaries, data flow, calculations, and provider design
 - [SECURITY.md](./SECURITY.md): threat model, controls, assumptions, and production checklist
+- [FINANCIAL_CALCULATIONS.md](./FINANCIAL_CALCULATIONS.md): exact accounting and performance methodology
+- [AI_TOOLS.md](./AI_TOOLS.md): read-tool catalog, grounding, isolation, and future action flow
+- [PROVIDERS.md](./PROVIDERS.md): real bank, brokerage, market, model, and action integration requirements
 - [ROADMAP.md](./ROADMAP.md): phased product and regulatory path
 - [TODO.md](./TODO.md): integrations that require credentials, infrastructure, or regulated partners
 

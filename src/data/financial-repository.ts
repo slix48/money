@@ -1,4 +1,11 @@
-import type { CategoryName, FinancialSnapshot, GoalRecord, UserSummary } from "@/domain/types";
+import type {
+  CategoryName,
+  FinancialSnapshot,
+  GoalContributionRecord,
+  GoalRecord,
+  IncomeType,
+  UserSummary,
+} from "@/domain/types";
 
 export interface TransactionUpdate {
   category?: CategoryName;
@@ -7,6 +14,23 @@ export interface TransactionUpdate {
 }
 
 export type GoalCreateInput = Omit<GoalRecord, "id" | "userId">;
+
+export interface RecurringUpdate {
+  status?: "ACTIVE" | "POSSIBLE" | "CANCELLED" | "IGNORED";
+  isSubscription?: boolean;
+}
+
+export interface GoalContributionCreateInput {
+  date: Date;
+  amountCents: number;
+  source: "MANUAL" | "TRANSFER" | "ACCOUNT_SYNC";
+  notes?: string;
+}
+
+export interface IncomeStreamUpdate {
+  name?: string;
+  type?: IncomeType;
+}
 
 export interface FinancialRepository {
   getUser(viewerUserId: string): Promise<UserSummary>;
@@ -17,4 +41,19 @@ export interface FinancialRepository {
     update: TransactionUpdate,
   ): Promise<void>;
   createGoal(viewerUserId: string, input: GoalCreateInput): Promise<GoalRecord>;
+  updateRecurring(
+    viewerUserId: string,
+    recurringId: string,
+    update: RecurringUpdate,
+  ): Promise<void>;
+  addGoalContribution(
+    viewerUserId: string,
+    goalId: string,
+    input: GoalContributionCreateInput,
+  ): Promise<GoalContributionRecord>;
+  updateIncomeStream(
+    viewerUserId: string,
+    incomeStreamId: string,
+    update: IncomeStreamUpdate,
+  ): Promise<void>;
 }

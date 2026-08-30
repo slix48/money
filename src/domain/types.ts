@@ -61,6 +61,7 @@ export interface AccountRecord {
   type: AccountType;
   balanceCents: number;
   availableBalanceCents?: number;
+  isLiability: boolean;
   currency: string;
   connectionStatus: "CONNECTED" | "NEEDS_ATTENTION" | "MANUAL" | "DISCONNECTED";
   source: "MOCK_PROVIDER" | "MANUAL" | "IMPORT" | "CONNECTED_PROVIDER";
@@ -74,7 +75,10 @@ export interface TransactionRecord {
   linkedAccountId?: string;
   date: Date;
   merchant: string;
+  rawMerchant?: string;
+  normalizedMerchant: string;
   description: string;
+  rawDescription?: string;
   amountCents: number;
   transactionType: TransactionType;
   category: CategoryName;
@@ -104,6 +108,7 @@ export interface RecurringRecord {
   accountId: string;
   merchant: string;
   amountCents: number;
+  averageAmountCents: number;
   previousAmountCents?: number;
   category: CategoryName;
   frequency: RecurringFrequency;
@@ -148,11 +153,14 @@ export interface InvestmentActivityRecord {
   userId: string;
   accountId: string;
   date: Date;
-  type: "BUY" | "SELL" | "DIVIDEND" | "INTEREST" | "CONTRIBUTION" | "WITHDRAWAL";
+  type: "BUY" | "SELL" | "DIVIDEND" | "INTEREST" | "CONTRIBUTION" | "WITHDRAWAL" | "FEE";
   ticker?: string;
   quantity?: number;
   priceCents?: number;
   amountCents: number;
+  feesCents: number;
+  costBasisCents?: number;
+  realizedGainCents?: number;
 }
 
 export interface NetWorthSnapshotRecord {
@@ -178,7 +186,18 @@ export interface GoalRecord {
   targetDate?: Date;
   linkedAccountId?: string;
   monthlyTargetCents: number;
+  notes?: string;
   color: string;
+}
+
+export interface GoalContributionRecord {
+  id: string;
+  userId: string;
+  goalId: string;
+  date: Date;
+  amountCents: number;
+  source: "MANUAL" | "TRANSFER" | "ACCOUNT_SYNC";
+  notes?: string;
 }
 
 export interface FinancialSnapshot {
@@ -191,6 +210,7 @@ export interface FinancialSnapshot {
   investmentActivity: InvestmentActivityRecord[];
   netWorthHistory: NetWorthSnapshotRecord[];
   goals: GoalRecord[];
+  goalContributions: GoalContributionRecord[];
   generatedAt: Date;
   dataSource: "DEMO" | "DATABASE";
 }

@@ -719,6 +719,16 @@ textarea:focus-visible {
 .insight-row:hover { background: var(--surface-soft); }
 .insight-row > div { min-width: 0; }
 .insight-row strong { display: block; overflow: hidden; color: var(--text); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.health-panel { overflow: hidden; }
+.health-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.health-indicator { display: grid; min-height: 90px; align-content: center; gap: 4px; padding: 13px 16px; border-top: 1px solid var(--border); border-right: 1px solid var(--border); color: inherit; }
+.health-indicator:nth-child(3n) { border-right: 0; }
+.health-indicator:hover { background: var(--surface-soft); }
+.health-indicator > span { color: var(--text-tertiary); font-size: 9px; font-weight: 650; text-transform: uppercase; }
+.health-indicator > strong { color: var(--text); font-size: 16px; font-weight: 680; }
+.health-indicator > small { overflow: hidden; color: var(--text-tertiary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.health-indicator.positive > strong { color: var(--positive); }
+.health-indicator.attention > strong { color: var(--attention); }
 .insight-row p { margin: 3px 0 0; color: var(--text-tertiary); font-size: 10px; line-height: 1.4; }
 .insight-row > svg { color: var(--text-tertiary); }
 
@@ -821,12 +831,15 @@ textarea:focus-visible {
 .legend-color.color-5 { background: var(--chart-5); }
 .legend-color.color-6 { background: var(--violet); }
 
-.stream-row { display: grid; min-height: 64px; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); grid-template-columns: auto minmax(0, 1fr) auto; }
+.stream-row { display: grid; min-height: 64px; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .stream-row:last-child { border-bottom: 0; }
 .stream-row > div { display: grid; min-width: 0; }
 .stream-row strong { color: var(--text); font-size: 11px; }
 .stream-row span { overflow: hidden; color: var(--text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .stream-row b { color: var(--text); font-size: 11px; }
+.stream-row .stream-amount { text-align: right; }
+.stream-row .icon-button { width: 28px; height: 28px; }
+.form-help { margin: -3px 0 0; font-size: 9px; }
 
 .change-band,
 .concentration-band {
@@ -851,11 +864,14 @@ textarea:focus-visible {
 .recurring-table .amount-cell div { display: grid; }
 .recurring-table .amount-cell small,
 .positions-table .amount-cell small { display: block; margin-top: 2px; font-size: 9px; font-weight: 600; }
+.table-subtext { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: 9px; white-space: nowrap; }
+.compact-select { width: auto; min-width: 112px; min-height: 30px; padding: 4px 28px 4px 8px; font-size: 10px; }
 .possible-grid { display: grid; gap: 10px; margin-top: 17px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .possible-grid > div { display: grid; align-items: center; gap: 10px; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius); grid-template-columns: auto minmax(0, 1fr) auto; }
 .possible-grid div > div { display: grid; min-width: 0; }
 .possible-grid strong { color: var(--text); font-size: 11px; }
 .possible-grid span { color: var(--text-tertiary); font-size: 10px; }
+.possible-actions { display: flex !important; grid-auto-flow: column; gap: 5px; }
 .ticker-icon { display: grid; width: 38px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 5px; background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 740; }
 
 .goals-grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -877,6 +893,8 @@ textarea:focus-visible {
 .goal-card dd { margin: 0; color: var(--text-secondary); font-size: 10px; font-weight: 620; }
 .goal-card footer { display: flex; min-height: 31px; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 10px; }
 .goal-card footer > span:last-child { overflow: hidden; max-width: 140px; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.goal-card footer .icon-button { width: 28px; height: 28px; flex: 0 0 auto; }
+.goal-note { min-height: 28px; margin: 8px 0 0; color: var(--text-tertiary); font-size: 9px; line-height: 1.45; }
 .add-goal-tile { display: flex; min-height: 315px; align-items: center; justify-content: center; flex-direction: column; gap: 7px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: transparent; cursor: pointer; }
 .add-goal-tile:hover { border-color: var(--primary); background: var(--primary-soft); }
 .add-goal-tile strong { margin-top: 6px; color: var(--text); font-size: 12px; }
@@ -898,6 +916,20 @@ textarea:focus-visible {
 .color-field > div { display: flex; gap: 8px; }
 .color-field button { display: grid; width: 27px; height: 27px; place-items: center; border: 2px solid var(--surface); border-radius: 50%; color: #fff; cursor: pointer; box-shadow: 0 0 0 1px var(--border); }
 .color-field button.selected { box-shadow: 0 0 0 2px var(--text); }
+.goal-planner { padding-bottom: 17px; }
+.goal-planner-grid { display: grid; gap: 18px; padding: 4px 17px 0; grid-template-columns: minmax(180px, 0.7fr) minmax(220px, 1fr) minmax(220px, 1fr); }
+.goal-planner-controls { display: grid; align-content: start; gap: 12px; }
+.scenario-results { display: grid; align-content: start; margin: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.scenario-results > div { display: grid; gap: 3px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.scenario-results > div:nth-child(odd) { padding-right: 12px; }
+.scenario-results dt { color: var(--text-tertiary); font-size: 9px; }
+.scenario-results dd { margin: 0; color: var(--text); font-size: 11px; font-weight: 650; }
+.goal-history { display: grid; align-content: start; }
+.goal-history > strong { margin-bottom: 5px; color: var(--text-secondary); font-size: 10px; }
+.goal-history > div { display: flex; min-height: 39px; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border); font-size: 10px; }
+.goal-history span { display: grid; color: var(--text-secondary); }
+.goal-history small { margin-top: 2px; color: var(--text-tertiary); font-size: 8px; }
+.goal-history b { color: var(--text); font-size: 10px; }
 
 .money-flow-layout { display: grid; min-width: 0; gap: 16px; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr); }
 .flow-canvas { display: flex; min-height: 510px; align-items: center; flex-direction: column; padding: 28px; }
@@ -1229,6 +1261,7 @@ textarea:focus-visible {
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1243,10 +1276,13 @@ textarea:focus-visible {
 }
 
 .toolbar-group.grow { flex: 1; }
+.toolbar-group:not(.grow) { max-width: 100%; overflow-x: auto; padding-bottom: 1px; }
+.date-control { width: 136px; flex: 0 0 136px; }
 .table-summary { display: flex; min-height: 35px; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--border); color: var(--text-tertiary); font-size: 10px; }
 .table-summary .button { min-height: 28px; padding-inline: 7px; font-size: 10px; }
 .interactive-row { cursor: pointer; }
 .interactive-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.accessible-chart { width: 100%; height: 100%; min-width: 0; }
 
 .drawer-layer {
   position: fixed;
@@ -1621,9 +1657,13 @@ textarea:focus-visible {
   .dashboard-grid,
   .dashboard-grid.equal { grid-template-columns: minmax(0, 1fr); }
   .metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .health-indicator:nth-child(3n) { border-right: 1px solid var(--border); }
+  .health-indicator:nth-child(2n) { border-right: 0; }
   .metric-cell:nth-child(2) { border-right: 0; }
   .metric-cell:nth-child(-n + 2) { border-bottom: 1px solid var(--border); }
   .money-flow-layout { grid-template-columns: minmax(0, 1fr); }
+  .goal-planner-grid { grid-template-columns: minmax(0, 1fr); }
   .comparison-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .comparison-strip > div:nth-child(2) { border-right: 0; }
   .comparison-strip > div:nth-child(-n + 2) { border-bottom: 1px solid var(--border); }
@@ -1641,6 +1681,8 @@ textarea:focus-visible {
   .page-header h1 { font-size: 22px; }
   .page-actions { width: 100%; overflow-x: auto; }
   .metric-value { font-size: 19px; }
+  .health-grid { grid-template-columns: minmax(0, 1fr); }
+  .health-indicator { border-right: 0 !important; }
   .metric-cell { padding: 14px 13px; }
   .dashboard-grid.three { grid-template-columns: minmax(0, 1fr); }
   .panel-padding { padding: 15px; }

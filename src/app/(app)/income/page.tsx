@@ -9,10 +9,11 @@ import {
 } from "lucide-react";
 import { requireUser } from "@/auth/dal";
 import { DonutChart, ValueTrendChart } from "@/components/charts/financial-charts";
+import { IncomeStreams } from "@/components/income/income-streams";
 import { PageHeader } from "@/components/ui/page-header";
 import { getFinancialRepository } from "@/data/get-repository";
 import { calculateIncome, calculateMonthlySeries, getMonthRange } from "@/domain/calculations";
-import { formatCurrency, formatPercent, titleCase } from "@/lib/format";
+import { formatCurrency, titleCase } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Income" };
 
@@ -27,6 +28,10 @@ export default async function IncomePage() {
     .filter((transaction) => !transaction.isPending && transaction.transactionType === "INCOME")
     .slice(0, 8);
   const change = income.totalCents - previous.totalCents;
+  const averageIncome = Math.round(
+    series.reduce((sum, month) => sum + month.incomeCents, 0) /
+      Math.max(1, series.length),
+  );
 
   return (
     <div className="page-stack">
@@ -37,14 +42,14 @@ export default async function IncomePage() {
       />
       <section className="metric-strip">
         <div className="metric-cell"><span className="metric-label"><CircleDollarSign size={13} /> Total income</span><strong className="metric-value">{formatCurrency(income.totalCents, true)}</strong><span className={`metric-meta ${change >= 0 ? "positive" : "negative"}`}>{change >= 0 ? "+" : ""}{formatCurrency(change, true)} vs last month</span></div>
-        <div className="metric-cell"><span className="metric-label"><Repeat2 size={13} /> Recurring income</span><strong className="metric-value">{formatCurrency(income.recurringCents, true)}</strong><span className="metric-meta">{formatPercent(income.recurringCents / Math.max(1, income.totalCents))} of total</span></div>
+        <div className="metric-cell"><span className="metric-label"><Repeat2 size={13} /> Recurring income</span><strong className="metric-value">{formatCurrency(income.recurringCents, true)}</strong><span className="metric-meta">{formatCurrency(income.totalCents - income.recurringCents, true)} variable</span></div>
         <div className="metric-cell"><span className="metric-label"><BriefcaseBusiness size={13} /> Side income</span><strong className="metric-value">{formatCurrency(income.sideIncomeCents, true)}</strong><span className="metric-meta">Freelance and business</span></div>
         <div className="metric-cell"><span className="metric-label"><ChartNoAxesCombined size={13} /> Investment income</span><strong className="metric-value">{formatCurrency(income.investmentIncomeCents, true)}</strong><span className="metric-meta">Dividends and interest</span></div>
       </section>
 
       <section className="dashboard-grid">
         <div className="panel">
-          <div className="panel-header"><div><h2>Income over time</h2><p>Settled income by month</p></div><span className="badge badge-positive"><TrendingUp size={12} /> {formatCurrency(Math.max(0, change), true)} increase</span></div>
+          <div className="panel-header"><div><h2>Income over time</h2><p>{formatCurrency(averageIncome, true)} six-month average</p></div><span className={change >= 0 ? "badge badge-positive" : "badge badge-attention"}><TrendingUp size={12} /> {formatCurrency(Math.abs(change), true)} {change >= 0 ? "increase" : "decrease"}</span></div>
           <div className="chart-container tall"><ValueTrendChart data={series} valueKey="incomeCents" label="Income" /></div>
         </div>
         <div className="panel">
@@ -63,15 +68,7 @@ export default async function IncomePage() {
       <section className="dashboard-grid equal">
         <div className="panel">
           <div className="panel-header"><div><h2>Income streams</h2><p>Detected payers and cadence</p></div></div>
-          <div className="compact-list">
-            {snapshot.incomeStreams.map((stream) => (
-              <div className="stream-row" key={stream.id}>
-                <span className="merchant-icon">{stream.payer.slice(0, 1)}</span>
-                <div><strong>{stream.name}</strong><span>{stream.payer} · {titleCase(stream.type)}</span></div>
-                <div className="text-right"><b>{formatCurrency(stream.averageAmountCents, true)}</b><span>{stream.isRecurring ? titleCase(stream.frequency ?? "Recurring") : "Variable"}</span></div>
-              </div>
-            ))}
-          </div>
+          <IncomeStreams initialStreams={snapshot.incomeStreams} />
         </div>
         <div className="panel">
           <div className="panel-header"><div><h2>Recent income</h2><p>Transfers and refunds excluded</p></div></div>

@@ -2,12 +2,15 @@ import "server-only";
 import type {
   CategoryName,
   FinancialSnapshot,
-  IncomeType,
 } from "@/domain/types";
+import { normalizeMerchant } from "@/domain/calculations";
 import { NotFoundError } from "@/data/errors";
 import type {
   FinancialRepository,
+  GoalContributionCreateInput,
   GoalCreateInput,
+  IncomeStreamUpdate,
+  RecurringUpdate,
   TransactionUpdate,
 } from "@/data/financial-repository";
 import { prisma } from "@/lib/db";
@@ -84,6 +87,7 @@ export class PrismaFinancialRepository implements FinancialRepository {
         },
         netWorthSnapshots: { orderBy: { date: "asc" } },
         goals: { orderBy: { targetDate: "asc" } },
+        goalContributions: { orderBy: { date: "desc" } },
       },
     });
 
@@ -105,6 +109,7 @@ export class PrismaFinancialRepository implements FinancialRepository {
         balanceCents: toCents(account.balance),
         availableBalanceCents:
           account.availableBalance === null ? undefined : toCents(account.availableBalance),
+        isLiability: account.isLiability,
         currency: account.currency,
         connectionStatus: account.connectionStatus,
         source: account.source,
@@ -117,15 +122,16 @@ export class PrismaFinancialRepository implements FinancialRepository {
         linkedAccountId: transaction.linkedAccountId ?? undefined,
         date: transaction.date,
         merchant: transaction.merchant,
+        rawMerchant: transaction.rawMerchant ?? undefined,
+        normalizedMerchant:
+          transaction.normalizedMerchant ?? normalizeMerchant(transaction.merchant),
         description: transaction.description,
+        rawDescription: transaction.rawDescription ?? undefined,
         amountCents: toCents(transaction.amount),
         transactionType: transaction.transactionType,
         category: categoryName(transaction.category?.name),
         subcategory: transaction.subcategory ?? undefined,
-        incomeType:
-          transaction.transactionType === "INCOME"
-            ? (transaction.subcategory?.toUpperCase().replaceAll(" ", "_") as IncomeType)
-            : undefined,
+        incomeType: transaction.incomeType ?? undefined,
         isPending: transaction.isPending,
         isRecurring: transaction.isRecurring,
         notes: transaction.notes ?? undefined,
@@ -140,6 +146,7 @@ export class PrismaFinancialRepository implements FinancialRepository {
         accountId: item.accountId,
         merchant: item.merchant,
         amountCents: toCents(item.amount),
+        averageAmountCents: toCents(item.averageAmount ?? item.amount),
         previousAmountCents:
           item.previousAmount === null ? undefined : toCents(item.previousAmount),
         category: categoryName(item.category?.name),
@@ -195,6 +202,11 @@ export class PrismaFinancialRepository implements FinancialRepository {
           quantity: activity.quantity === null ? undefined : Number(activity.quantity),
           priceCents: activity.price === null ? undefined : toCents(activity.price),
           amountCents: toCents(activity.amount),
+          feesCents: toCents(activity.fees),
+          costBasisCents:
+            activity.costBasis === null ? undefined : toCents(activity.costBasis),
+          realizedGainCents:
+            activity.realizedGain === null ? undefined : toCents(activity.realizedGain),
         })),
       ),
       netWorthHistory: user.netWorthSnapshots.map((snapshot) => ({
@@ -219,7 +231,17 @@ export class PrismaFinancialRepository implements FinancialRepository {
         targetDate: goal.targetDate ?? undefined,
         linkedAccountId: goal.linkedAccountId ?? undefined,
         monthlyTargetCents: toCents(goal.monthlyTarget),
+        notes: goal.notes ?? undefined,
         color: goal.color,
+      })),
+      goalContributions: user.goalContributions.map((contribution) => ({
+        id: contribution.id,
+        userId: contribution.userId,
+        goalId: contribution.goalId,
+        date: contribution.date,
+        amountCents: toCents(contribution.amount),
+        source: contribution.source,
+        notes: contribution.notes ?? undefined,
       })),
       generatedAt: new Date(),
       dataSource: "DATABASE",
@@ -241,17 +263,109 @@ export class PrismaFinancialRepository implements FinancialRepository {
       categoryId = category.id;
     }
 
-    const result = await prisma.transaction.updateMany({
-      where: { id: transactionId, userId: viewerUserId },
-      data: {
-        ...(categoryId ? { categoryId } : {}),
-        ...(update.notes !== undefined ? { notes: update.notes } : {}),
-        ...(update.isRecurring !== undefined
-          ? { isRecurring: update.isRecurring }
-          : {}),
-      },
+    await prisma.$transaction(async (database) => {
+      const ownedTransaction = await database.transaction.findFirst({
+        where: { id: transactionId, userId: viewerUserId },
+        select: {
+          id: true,
+          accountId: true,
+          categoryId: true,
+          merchant: true,
+          normalizedMerchant: true,
+          recurringTransactionId: true,
+          amount: true,
+          date: true,
+          category: { select: { name: true } },
+        },
+      });
+      if (!ownedTransaction) throw new NotFoundError();
+
+      let recurringTransactionId: string | null | undefined;
+      if (update.isRecurring === false) {
+        recurringTransactionId = null;
+      } else if (update.isRecurring === true) {
+        const normalizedMerchant =
+          ownedTransaction.normalizedMerchant ??
+          normalizeMerchant(ownedTransaction.merchant);
+        const existing = await database.recurringTransaction.findFirst({
+          where: {
+            userId: viewerUserId,
+            accountId: ownedTransaction.accountId,
+            normalizedMerchant,
+          },
+          select: { id: true },
+        });
+        const recurring =
+          existing ??
+          (await database.recurringTransaction.create({
+            data: {
+              userId: viewerUserId,
+              accountId: ownedTransaction.accountId,
+              categoryId: categoryId ?? ownedTransaction.categoryId,
+              merchant: ownedTransaction.merchant,
+              normalizedMerchant,
+              amount: Math.abs(Number(ownedTransaction.amount)),
+              averageAmount: Math.abs(Number(ownedTransaction.amount)),
+              frequency: "VARIABLE",
+              lastChargeDate: ownedTransaction.date,
+              annualizedAmount:
+                Math.abs(Number(ownedTransaction.amount)) * 12,
+              status: "POSSIBLE",
+              confidence: 0.5,
+              isSubscription:
+                (update.category ?? ownedTransaction.category?.name) ===
+                "Subscriptions",
+            },
+            select: { id: true },
+          }));
+        recurringTransactionId = recurring.id;
+      }
+
+      const recurrenceForCategoryUpdate =
+        typeof recurringTransactionId === "string"
+          ? recurringTransactionId
+          : update.isRecurring === false
+            ? null
+            : ownedTransaction.recurringTransactionId;
+      if (categoryId && recurrenceForCategoryUpdate) {
+        await database.recurringTransaction.updateMany({
+          where: {
+            id: recurrenceForCategoryUpdate,
+            userId: viewerUserId,
+          },
+          data: {
+            categoryId,
+            isSubscription: update.category === "Subscriptions",
+          },
+        });
+      }
+
+      const result = await database.transaction.updateMany({
+        where: { id: transactionId, userId: viewerUserId },
+        data: {
+          ...(categoryId ? { categoryId } : {}),
+          ...(update.notes !== undefined ? { notes: update.notes } : {}),
+          ...(update.isRecurring !== undefined
+            ? {
+                isRecurring: update.isRecurring,
+                recurringTransactionId,
+              }
+            : {}),
+        },
+      });
+      if (result.count !== 1) throw new NotFoundError();
+      await database.auditEvent.create({
+        data: {
+          userId: viewerUserId,
+          action: "TRANSACTION_UPDATED",
+          entityType: "Transaction",
+          entityId: transactionId,
+          metadata: {
+            changedFields: Object.keys(update),
+          },
+        },
+      });
     });
-    if (result.count !== 1) throw new NotFoundError();
   }
 
   async createGoal(viewerUserId: string, input: GoalCreateInput) {
@@ -262,18 +376,30 @@ export class PrismaFinancialRepository implements FinancialRepository {
       });
       if (!account) throw new NotFoundError("Linked account not found");
     }
-    const goal = await prisma.goal.create({
-      data: {
-        userId: viewerUserId,
-        type: input.type,
-        name: input.name,
-        targetAmount: input.targetAmountCents / 100,
-        currentAmount: input.currentAmountCents / 100,
-        targetDate: input.targetDate,
-        linkedAccountId: input.linkedAccountId,
-        monthlyTarget: input.monthlyTargetCents / 100,
-        color: input.color,
-      },
+    const goal = await prisma.$transaction(async (database) => {
+      const created = await database.goal.create({
+        data: {
+          userId: viewerUserId,
+          type: input.type,
+          name: input.name,
+          targetAmount: input.targetAmountCents / 100,
+          currentAmount: input.currentAmountCents / 100,
+          targetDate: input.targetDate,
+          linkedAccountId: input.linkedAccountId,
+          monthlyTarget: input.monthlyTargetCents / 100,
+          notes: input.notes,
+          color: input.color,
+        },
+      });
+      await database.auditEvent.create({
+        data: {
+          userId: viewerUserId,
+          action: "GOAL_CREATED",
+          entityType: "Goal",
+          entityId: created.id,
+        },
+      });
+      return created;
     });
     return {
       id: goal.id,
@@ -285,8 +411,100 @@ export class PrismaFinancialRepository implements FinancialRepository {
       targetDate: goal.targetDate ?? undefined,
       linkedAccountId: goal.linkedAccountId ?? undefined,
       monthlyTargetCents: toCents(goal.monthlyTarget),
+      notes: goal.notes ?? undefined,
       color: goal.color,
     };
+  }
+
+  async updateRecurring(
+    viewerUserId: string,
+    recurringId: string,
+    update: RecurringUpdate,
+  ): Promise<void> {
+    await prisma.$transaction(async (database) => {
+      const result = await database.recurringTransaction.updateMany({
+        where: { id: recurringId, userId: viewerUserId },
+        data: update,
+      });
+      if (result.count !== 1) throw new NotFoundError();
+      await database.auditEvent.create({
+        data: {
+          userId: viewerUserId,
+          action: "RECURRING_UPDATED",
+          entityType: "RecurringTransaction",
+          entityId: recurringId,
+          metadata: { changedFields: Object.keys(update) },
+        },
+      });
+    });
+  }
+
+  async addGoalContribution(
+    viewerUserId: string,
+    goalId: string,
+    input: GoalContributionCreateInput,
+  ) {
+    return prisma.$transaction(async (database) => {
+      const goal = await database.goal.findFirst({
+        where: { id: goalId, userId: viewerUserId },
+        select: { id: true },
+      });
+      if (!goal) throw new NotFoundError();
+      const contribution = await database.goalContribution.create({
+        data: {
+          userId: viewerUserId,
+          goalId,
+          date: input.date,
+          amount: input.amountCents / 100,
+          source: input.source,
+          notes: input.notes,
+        },
+      });
+      await database.goal.update({
+        where: { id: goal.id },
+        data: { currentAmount: { increment: input.amountCents / 100 } },
+      });
+      await database.auditEvent.create({
+        data: {
+          userId: viewerUserId,
+          action: "GOAL_CONTRIBUTION_ADDED",
+          entityType: "Goal",
+          entityId: goalId,
+        },
+      });
+      return {
+        id: contribution.id,
+        userId: contribution.userId,
+        goalId: contribution.goalId,
+        date: contribution.date,
+        amountCents: toCents(contribution.amount),
+        source: contribution.source,
+        notes: contribution.notes ?? undefined,
+      };
+    });
+  }
+
+  async updateIncomeStream(
+    viewerUserId: string,
+    incomeStreamId: string,
+    update: IncomeStreamUpdate,
+  ): Promise<void> {
+    await prisma.$transaction(async (database) => {
+      const result = await database.incomeStream.updateMany({
+        where: { id: incomeStreamId, userId: viewerUserId },
+        data: update,
+      });
+      if (result.count !== 1) throw new NotFoundError();
+      await database.auditEvent.create({
+        data: {
+          userId: viewerUserId,
+          action: "INCOME_STREAM_UPDATED",
+          entityType: "IncomeStream",
+          entityId: incomeStreamId,
+          metadata: { changedFields: Object.keys(update) },
+        },
+      });
+    });
   }
 }
 

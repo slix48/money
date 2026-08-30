@@ -12,6 +12,11 @@ describe("financial insight engine", () => {
     expect(findings.some((finding) => finding.title.includes("MetroNet Fiber"))).toBe(true);
     expect(findings.some((finding) => finding.type === "INCOME_CHANGE")).toBe(true);
     expect(findings.some((finding) => finding.type === "INVESTMENT_CONTRIBUTION")).toBe(true);
+    expect(
+      findings.filter((finding) =>
+        ["BILL_CHANGE", "SUBSCRIPTION_CHANGE"].includes(finding.type),
+      ),
+    ).toHaveLength(2);
   });
 
   it("returns only material, prioritized monthly changes", () => {

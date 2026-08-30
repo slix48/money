@@ -94,6 +94,13 @@ enum InvestmentTransactionType {
   INTEREST
   CONTRIBUTION
   WITHDRAWAL
+  FEE
+}
+
+enum GoalContributionSource {
+  MANUAL
+  TRANSFER
+  ACCOUNT_SYNC
 }
 
 enum GoalType {
@@ -147,8 +154,10 @@ model User {
   investmentTransactions InvestmentTransaction[]
   netWorthSnapshots      NetWorthSnapshot[]
   goals                  Goal[]
+  goalContributions      GoalContribution[]
   insights               Insight[]
   aiConversations        AIConversation[]
+  aiMessages             AIMessage[]
   sessions               Session[]
   auditEvents            AuditEvent[]
 }
@@ -191,6 +200,7 @@ model Account {
   goals              Goal[]                 @relation("GoalLinkedAccount")
 
   @@unique([userId, providerAccountId])
+  @@unique([id, userId])
   @@index([userId, type])
   @@index([userId, connectionStatus])
 }
@@ -210,6 +220,7 @@ model Category {
   recurring    RecurringTransaction[]
 
   @@unique([userId, name])
+  @@unique([id, userId])
   @@index([userId, kind])
 }
 
@@ -223,10 +234,14 @@ model Transaction {
   externalId             String?
   date                   DateTime
   merchant               String
+  rawMerchant            String?
+  normalizedMerchant     String?
   description            String
+  rawDescription         String?
   amount                 Decimal               @db.Decimal(19, 4)
   transactionType        TransactionType
   subcategory            String?
+  incomeType             IncomeType?
   isPending              Boolean               @default(false)
   isRecurring            Boolean               @default(false)
   notes                  String?               @db.VarChar(1000)
@@ -235,14 +250,15 @@ model Transaction {
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
   user                   User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account                Account               @relation("AccountTransactions", fields: [accountId], references: [id], onDelete: Cascade)
-  linkedAccount          Account?              @relation("LinkedAccountTransactions", fields: [linkedAccountId], references: [id], onDelete: SetNull)
-  category               Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  recurringTransaction   RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id], onDelete: SetNull)
+  account                Account               @relation("AccountTransactions", fields: [accountId, userId], references: [id, userId], onDelete: Cascade)
+  linkedAccount          Account?              @relation("LinkedAccountTransactions", fields: [linkedAccountId, userId], references: [id, userId], onDelete: Restrict)
+  category               Category?             @relation(fields: [categoryId, userId], references: [id, userId], onDelete: Restrict)
+  recurringTransaction   RecurringTransaction? @relation(fields: [recurringTransactionId, userId], references: [id, userId], onDelete: Restrict)
 
   @@unique([userId, source, externalId])
   @@index([userId, date(sort: Desc)])
   @@index([userId, merchant, date])
+  @@index([userId, normalizedMerchant, date])
   @@index([userId, categoryId, date])
   @@index([userId, transactionType, date])
   @@index([userId, isPending, date])
@@ -257,6 +273,7 @@ model RecurringTransaction {
   merchant           String
   normalizedMerchant String
   amount             Decimal            @db.Decimal(19, 4)
+  averageAmount      Decimal?           @db.Decimal(19, 4)
   previousAmount     Decimal?           @db.Decimal(19, 4)
   frequency          RecurringFrequency
   nextEstimatedDate  DateTime?
@@ -268,12 +285,13 @@ model RecurringTransaction {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account            Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  category           Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account            Account            @relation(fields: [accountId, userId], references: [id, userId], onDelete: Cascade)
+  category           Category?          @relation(fields: [categoryId, userId], references: [id, userId], onDelete: Restrict)
   transactions       Transaction[]
 
   @@index([userId, status, nextEstimatedDate])
   @@index([userId, normalizedMerchant])
+  @@unique([id, userId])
 }
 
 model IncomeStream {
@@ -291,7 +309,7 @@ model IncomeStream {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account        Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  account        Account?            @relation(fields: [accountId, userId], references: [id, userId], onDelete: Restrict)
 
   @@index([userId, type])
   @@index([userId, isRecurring])
@@ -305,11 +323,13 @@ model InvestmentAccount {
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account                Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account                Account                 @relation(fields: [accountId, userId], references: [id, userId], onDelete: Cascade)
   holdings               Holding[]
   investmentTransactions InvestmentTransaction[]
 
   @@unique([userId, providerAccountId])
+  @@unique([id, userId])
+  @@unique([accountId, userId])
   @@index([userId])
 }
 
@@ -329,7 +349,7 @@ model Holding {
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  investmentAccount   InvestmentAccount @relation(fields: [investmentAccountId], references: [id], onDelete: Cascade)
+  investmentAccount   InvestmentAccount @relation(fields: [investmentAccountId, userId], references: [id, userId], onDelete: Cascade)
 
   @@unique([investmentAccountId, ticker])
   @@index([userId, currentValue(sort: Desc)])
@@ -347,11 +367,13 @@ model InvestmentTransaction {
   price               Decimal?                  @db.Decimal(19, 6)
   amount              Decimal                   @db.Decimal(19, 4)
   fees                Decimal                   @default(0) @db.Decimal(19, 4)
+  costBasis           Decimal?                  @db.Decimal(19, 4)
+  realizedGain        Decimal?                  @db.Decimal(19, 4)
   notes               String?
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
   user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  investmentAccount   InvestmentAccount         @relation(fields: [investmentAccountId], references: [id], onDelete: Cascade)
+  investmentAccount   InvestmentAccount         @relation(fields: [investmentAccountId, userId], references: [id, userId], onDelete: Cascade)
 
   @@unique([userId, externalId])
   @@index([userId, date(sort: Desc)])
@@ -388,13 +410,32 @@ model Goal {
   currentAmount   Decimal   @db.Decimal(19, 4)
   targetDate      DateTime?
   monthlyTarget   Decimal   @db.Decimal(19, 4)
+  notes           String?   @db.VarChar(1000)
   color           String
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  linkedAccount   Account?  @relation("GoalLinkedAccount", fields: [linkedAccountId], references: [id], onDelete: SetNull)
+  linkedAccount   Account?  @relation("GoalLinkedAccount", fields: [linkedAccountId, userId], references: [id, userId], onDelete: Restrict)
+  contributions   GoalContribution[]
 
   @@index([userId, targetDate])
+  @@unique([id, userId])
+}
+
+model GoalContribution {
+  id        String                 @id @default(cuid())
+  userId    String
+  goalId    String
+  date      DateTime
+  amount    Decimal                @db.Decimal(19, 4)
+  source    GoalContributionSource @default(MANUAL)
+  notes     String?                @db.VarChar(1000)
+  createdAt DateTime               @default(now())
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal      Goal                   @relation(fields: [goalId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, date(sort: Desc)])
+  @@index([goalId, date(sort: Desc)])
 }
 
 model Insight {
@@ -425,10 +466,12 @@ model AIConversation {
   messages  AIMessage[]
 
   @@index([userId, updatedAt(sort: Desc)])
+  @@unique([id, userId])
 }
 
 model AIMessage {
   id             String         @id @default(cuid())
+  userId         String
   conversationId String
   role           AIMessageRole
   content        String         @db.Text
@@ -436,8 +479,10 @@ model AIMessage {
   toolInput      Json?
   toolResult     Json?
   createdAt      DateTime       @default(now())
-  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation   AIConversation @relation(fields: [conversationId, userId], references: [id, userId], onDelete: Cascade)
 
+  @@index([userId, createdAt])
   @@index([conversationId, createdAt])
 }
 

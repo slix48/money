@@ -10,12 +10,15 @@ import {
   LockKeyhole,
   ShieldCheck,
   UserRound,
+  Link2,
 } from "lucide-react";
 import { requireUser } from "@/auth/dal";
 import { PageHeader } from "@/components/ui/page-header";
+import { ConnectedAccounts } from "@/components/settings/connected-accounts";
 import { getFinancialRepository } from "@/data/get-repository";
 import { calculateNetWorth } from "@/domain/calculations";
 import { formatCurrency, titleCase } from "@/lib/format";
+import { env } from "@/lib/env";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -24,6 +27,18 @@ export default async function SettingsPage() {
   const repository = await getFinancialRepository();
   const snapshot = await repository.getSnapshot(user.id);
   const worth = calculateNetWorth(snapshot.accounts);
+  const connections = env.demoMode
+    ? []
+    : (await (await import("@/sync/connection-service")).listFinancialConnections(user.id)).map((connection) => ({
+        ...connection,
+        lastSuccessfulSyncAt: connection.lastSuccessfulSyncAt?.toISOString(),
+        lastAttemptedSyncAt: connection.lastAttemptedSyncAt?.toISOString(),
+        consentExpiresAt: connection.consentExpiresAt?.toISOString(),
+        accounts: connection.accounts.map((account) => ({
+          ...account,
+          lastUpdatedAt: account.lastUpdatedAt.toISOString(),
+        })),
+      }));
   return (
     <div className="page-stack settings-page">
       <PageHeader eyebrow="Workspace" title="Settings" description="Accounts, data sources, profile, and the security boundaries protecting this workspace." />
@@ -35,16 +50,21 @@ export default async function SettingsPage() {
       </section>
 
       <section className="settings-section">
+        <div className="settings-label"><Link2 size={16} /><div><h2>Connected accounts</h2><p>Institution health and synchronization</p></div></div>
+        <ConnectedAccounts initialConnections={connections} demoMode={env.demoMode} providerConfigured={env.plaidConfigured} />
+      </section>
+
+      <section className="settings-section">
         <div className="settings-label"><Landmark size={16} /><div><h2>Accounts</h2><p>{formatCurrency(worth.netWorthCents, true)} tracked net worth</p></div></div>
         <div className="panel">
-          <div className="table-wrap"><table className="data-table settings-accounts"><thead><tr><th>Account</th><th>Institution</th><th>Type</th><th>Connection</th><th>Updated</th><th className="text-right">Balance</th></tr></thead><tbody>{snapshot.accounts.map((account) => <tr key={account.id}><td><div className="merchant-cell"><span className="merchant-icon">{account.name.slice(0, 1)}</span><div className="merchant-copy"><strong>{account.name}</strong><span>{account.currency}</span></div></div></td><td>{account.institution}</td><td>{titleCase(account.type)}</td><td><span className={`badge ${account.connectionStatus === "CONNECTED" ? "badge-positive" : account.connectionStatus === "NEEDS_ATTENTION" ? "badge-attention" : ""}`}><CheckCircle2 size={10} /> {titleCase(account.connectionStatus)}</span></td><td>{format(account.lastUpdatedAt, "MMM d, h:mm a")}</td><td className={`amount-cell ${account.balanceCents < 0 ? "negative" : ""}`}>{formatCurrency(account.balanceCents)}</td></tr>)}</tbody></table></div>
+          <div className="table-wrap"><table className="data-table settings-accounts"><thead><tr><th>Account</th><th>Institution</th><th>Type</th><th>Connection</th><th>Updated</th><th className="text-right">Balance</th></tr></thead><tbody>{snapshot.accounts.map((account) => <tr key={account.id}><td><div className="merchant-cell"><span className="merchant-icon">{account.name.slice(0, 1)}</span><div className="merchant-copy"><strong>{account.name}</strong><span>{account.currency}</span></div></div></td><td>{account.institution}</td><td>{titleCase(account.type)}</td><td><span className={`badge ${account.connectionStatus === "CONNECTED" ? "badge-positive" : account.connectionStatus === "NEEDS_ATTENTION" || account.connectionStatus === "TEMPORARILY_UNAVAILABLE" ? "badge-attention" : ""}`}><CheckCircle2 size={10} /> {titleCase(account.connectionStatus)}</span></td><td>{format(account.lastUpdatedAt, "MMM d, h:mm a")}</td><td className={`amount-cell ${account.balanceCents < 0 ? "negative" : ""}`}>{account.balanceStatus === "UNAVAILABLE" ? "Unavailable" : formatCurrency(account.balanceCents)}</td></tr>)}</tbody></table></div>
         </div>
       </section>
 
       <section className="settings-section">
         <div className="settings-label"><Database size={16} /><div><h2>Providers</h2><p>Replaceable integration boundaries</p></div></div>
         <div className="provider-grid">
-          <article className="panel provider-card"><span className="provider-icon"><Database size={17} /></span><div><strong>Financial data</strong><p>MoneyOS Demo Provider</p></div><span className="badge badge-positive">Connected</span><small>MockFinancialDataProvider</small></article>
+          <article className="panel provider-card"><span className="provider-icon"><Database size={17} /></span><div><strong>Financial data</strong><p>{env.demoMode ? "MoneyOS Demo Provider" : env.plaidConfigured ? "Plaid connected-data adapter" : "No provider configured"}</p></div><span className={`badge ${env.demoMode || env.plaidConfigured ? "badge-positive" : "badge-attention"}`}>{env.demoMode ? "Demo data" : env.plaidConfigured ? "Available" : "Unavailable"}</span><small>{env.demoMode ? "MockFinancialDataProvider" : "PlaidFinancialDataProvider"}</small></article>
           <article className="panel provider-card"><span className="provider-icon blue"><LineChart size={17} /></span><div><strong>Market data</strong><p>Development price set</p></div><span className="badge badge-demo">Demo prices</span><small>MockMarketDataProvider</small></article>
           <article className="panel provider-card"><span className="provider-icon attention"><Ban size={17} /></span><div><strong>Financial actions</strong><p>Transfers, trades, cancellation</p></div><span className="badge">Unavailable in V1</span><small>V1ActionsUnavailable</small></article>
         </div>

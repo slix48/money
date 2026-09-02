@@ -13,9 +13,10 @@ const productionSecurityHeaders =
             "form-action 'self'",
             "img-src 'self' data: blob:",
             "font-src 'self'",
-            "connect-src 'self'",
-            "script-src 'self' 'unsafe-inline'",
+            "connect-src 'self' https://sandbox.plaid.com https://production.plaid.com",
+            "script-src 'self' 'unsafe-inline' https://cdn.plaid.com",
             "style-src 'self' 'unsafe-inline'",
+            "frame-src https://cdn.plaid.com",
           ].join("; "),
         },
         {

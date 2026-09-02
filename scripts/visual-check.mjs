@@ -99,6 +99,14 @@ try {
     await page.goto(`${baseUrl}${route}`, { waitUntil: "domcontentloaded" });
     report.routes.push({ route, ...(await pageHealth(route)) });
   }
+  const demoConnection = page.getByText("MoneyOS Demo Provider", { exact: true }).first();
+  await demoConnection.waitFor({ state: "visible" });
+  const demoConnectButton = page.getByRole("button", { name: "Connect account" });
+  if (!(await demoConnectButton.isDisabled())) {
+    throw new Error("Demo mode must not allow a real financial connection");
+  }
+  report.interactions.demoConnectionBoundary = "passed";
+  await page.screenshot({ path: artifactPath("settings-connected-accounts.png"), fullPage: true });
 
   await page.goto(`${baseUrl}/transactions`, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle");
@@ -176,6 +184,7 @@ try {
     "/investments",
     "/goals",
     "/ai",
+    "/settings",
   ];
   for (const route of mobileRoutes) {
     await page.goto(baseUrl + route, { waitUntil: "domcontentloaded" });

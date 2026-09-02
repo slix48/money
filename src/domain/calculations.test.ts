@@ -179,7 +179,7 @@ describe("financial calculations", () => {
     const snapshot = createDemoSnapshot(anchor);
     const holdings = snapshot.holdings.map((holding) =>
       holding.securityType === "CASH"
-        ? { ...holding, costBasisCents: 0 }
+        ? { ...holding, costBasisCents: undefined }
         : holding,
     );
     const portfolio = calculatePortfolio(holdings);

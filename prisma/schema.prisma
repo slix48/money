@@ -20,9 +20,61 @@ enum AccountType {
 
 enum ConnectionStatus {
   CONNECTED
+  SYNCING
   NEEDS_ATTENTION
+  TEMPORARILY_UNAVAILABLE
   MANUAL
   DISCONNECTED
+}
+
+enum AccountBalanceStatus {
+  AVAILABLE
+  UNAVAILABLE
+  STALE
+}
+
+enum FinancialConnectionProvider {
+  PLAID
+  MOCK
+}
+
+enum FinancialConnectionStatus {
+  PENDING
+  INITIAL_SYNC
+  SYNCING
+  CONNECTED
+  NEEDS_ATTENTION
+  TEMPORARILY_UNAVAILABLE
+  DISCONNECTING
+  DISCONNECTED
+}
+
+enum SyncTrigger {
+  INITIAL
+  WEBHOOK
+  MANUAL
+  SCHEDULED
+  RECONNECT
+}
+
+enum SyncRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum SyncJobStatus {
+  QUEUED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum UsageMetricCategory {
+  AI
+  FINANCIAL_DATA
+  MARKET_DATA
+  SYNC
 }
 
 enum TransactionType {
@@ -160,6 +212,11 @@ model User {
   aiMessages             AIMessage[]
   sessions               Session[]
   auditEvents            AuditEvent[]
+  financialConnections   FinancialConnection[]
+  providerAccounts       ProviderAccount[]
+  syncRuns               SyncRun[]
+  syncJobs               SyncJob[]
+  usageMetrics           UsageMetric[]
 }
 
 model Session {
@@ -182,6 +239,7 @@ model Account {
   institution        String
   type               AccountType
   balance            Decimal                @db.Decimal(19, 4)
+  balanceStatus      AccountBalanceStatus   @default(AVAILABLE)
   availableBalance   Decimal?               @db.Decimal(19, 4)
   currency           String                 @default("USD") @db.VarChar(3)
   isLiability        Boolean                @default(false)
@@ -198,6 +256,7 @@ model Account {
   incomeStreams      IncomeStream[]
   investmentAccount  InvestmentAccount?
   goals              Goal[]                 @relation("GoalLinkedAccount")
+  providerAccount    ProviderAccount?
 
   @@unique([userId, providerAccountId])
   @@unique([id, userId])
@@ -225,38 +284,56 @@ model Category {
 }
 
 model Transaction {
-  id                     String                @id @default(cuid())
-  userId                 String
-  accountId              String
-  linkedAccountId        String?
-  recurringTransactionId String?
-  categoryId             String?
-  externalId             String?
-  date                   DateTime
-  merchant               String
-  rawMerchant            String?
-  normalizedMerchant     String?
-  description            String
-  rawDescription         String?
-  amount                 Decimal               @db.Decimal(19, 4)
-  transactionType        TransactionType
-  subcategory            String?
-  incomeType             IncomeType?
-  isPending              Boolean               @default(false)
-  isRecurring            Boolean               @default(false)
-  notes                  String?               @db.VarChar(1000)
-  source                 TransactionSource
-  transferPairId         String?
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  user                   User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account                Account               @relation("AccountTransactions", fields: [accountId, userId], references: [id, userId], onDelete: Cascade)
-  linkedAccount          Account?              @relation("LinkedAccountTransactions", fields: [linkedAccountId, userId], references: [id, userId], onDelete: Restrict)
-  category               Category?             @relation(fields: [categoryId, userId], references: [id, userId], onDelete: Restrict)
-  recurringTransaction   RecurringTransaction? @relation(fields: [recurringTransactionId, userId], references: [id, userId], onDelete: Restrict)
+  id                       String                @id @default(cuid())
+  userId                   String
+  accountId                String
+  linkedAccountId          String?
+  recurringTransactionId   String?
+  financialConnectionId    String?
+  refundForTransactionId   String?
+  categoryId               String?
+  externalId               String?
+  date                     DateTime
+  authorizedDate           DateTime?
+  merchant                 String
+  rawMerchant              String?
+  normalizedMerchant       String?
+  description              String
+  rawDescription           String?
+  amount                   Decimal               @db.Decimal(19, 4)
+  transactionType          TransactionType
+  subcategory              String?
+  incomeType               IncomeType?
+  isPending                Boolean               @default(false)
+  isRecurring              Boolean               @default(false)
+  notes                    String?               @db.VarChar(1000)
+  source                   TransactionSource
+  transferPairId           String?
+  pendingExternalId        String?
+  providerCategory         Json?
+  providerSyncedAt         DateTime?
+  isRemoved                Boolean               @default(false)
+  removedAt                DateTime?
+  reconciliationConfidence Decimal?              @db.Decimal(5, 4)
+  reconciliationReason     String?               @db.VarChar(120)
+  categoryOverride         Boolean               @default(false)
+  typeOverride             Boolean               @default(false)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  user                     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account                  Account               @relation("AccountTransactions", fields: [accountId, userId], references: [id, userId], onDelete: Cascade)
+  linkedAccount            Account?              @relation("LinkedAccountTransactions", fields: [linkedAccountId, userId], references: [id, userId], onDelete: Restrict)
+  category                 Category?             @relation(fields: [categoryId, userId], references: [id, userId], onDelete: Restrict)
+  recurringTransaction     RecurringTransaction? @relation(fields: [recurringTransactionId, userId], references: [id, userId], onDelete: Restrict)
+  financialConnection      FinancialConnection?  @relation(fields: [financialConnectionId, userId], references: [id, userId], onDelete: Restrict)
+  refundForTransaction     Transaction?          @relation("TransactionRefunds", fields: [refundForTransactionId, userId], references: [id, userId], onDelete: Restrict)
+  refunds                  Transaction[]         @relation("TransactionRefunds")
 
-  @@unique([userId, source, externalId])
+  @@unique([id, userId])
+  @@unique([financialConnectionId, externalId])
   @@index([userId, date(sort: Desc)])
+  @@index([userId, isRemoved, date(sort: Desc)])
+  @@index([financialConnectionId, externalId])
   @@index([userId, merchant, date])
   @@index([userId, normalizedMerchant, date])
   @@index([userId, categoryId, date])
@@ -289,30 +366,32 @@ model RecurringTransaction {
   category           Category?          @relation(fields: [categoryId, userId], references: [id, userId], onDelete: Restrict)
   transactions       Transaction[]
 
+  @@unique([id, userId])
   @@index([userId, status, nextEstimatedDate])
   @@index([userId, normalizedMerchant])
-  @@unique([id, userId])
 }
 
 model IncomeStream {
-  id             String              @id @default(cuid())
-  userId         String
-  accountId      String?
-  name           String
-  payer          String
-  type           IncomeType
-  averageAmount  Decimal             @db.Decimal(19, 4)
-  isRecurring    Boolean             @default(false)
-  frequency      RecurringFrequency?
-  lastReceivedAt DateTime
-  nextExpectedAt DateTime?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account        Account?            @relation(fields: [accountId, userId], references: [id, userId], onDelete: Restrict)
+  id              String              @id @default(cuid())
+  userId          String
+  accountId       String?
+  name            String
+  payer           String
+  normalizedPayer String?
+  type            IncomeType
+  averageAmount   Decimal             @db.Decimal(19, 4)
+  isRecurring     Boolean             @default(false)
+  frequency       RecurringFrequency?
+  lastReceivedAt  DateTime
+  nextExpectedAt  DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account         Account?            @relation(fields: [accountId, userId], references: [id, userId], onDelete: Restrict)
 
   @@index([userId, type])
   @@index([userId, isRecurring])
+  @@index([userId, normalizedPayer])
 }
 
 model InvestmentAccount {
@@ -337,21 +416,25 @@ model Holding {
   id                  String            @id @default(cuid())
   userId              String
   investmentAccountId String
+  providerSecurityId  String?
   ticker              String
   name                String
   securityType        SecurityType
   quantity            Decimal           @db.Decimal(24, 8)
-  costBasis           Decimal           @db.Decimal(19, 4)
+  costBasis           Decimal?          @db.Decimal(19, 4)
   price               Decimal           @db.Decimal(19, 6)
   currentValue        Decimal           @db.Decimal(19, 4)
   priceAsOf           DateTime
   priceSource         String
+  priceIsDelayed      Boolean           @default(true)
+  currency            String            @default("USD") @db.VarChar(3)
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   investmentAccount   InvestmentAccount @relation(fields: [investmentAccountId, userId], references: [id, userId], onDelete: Cascade)
 
   @@unique([investmentAccountId, ticker])
+  @@unique([investmentAccountId, providerSecurityId])
   @@index([userId, currentValue(sort: Desc)])
 }
 
@@ -375,7 +458,7 @@ model InvestmentTransaction {
   user                User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   investmentAccount   InvestmentAccount         @relation(fields: [investmentAccountId, userId], references: [id, userId], onDelete: Cascade)
 
-  @@unique([userId, externalId])
+  @@unique([investmentAccountId, externalId])
   @@index([userId, date(sort: Desc)])
   @@index([investmentAccountId, date(sort: Desc)])
   @@index([userId, type, date])
@@ -401,25 +484,25 @@ model NetWorthSnapshot {
 }
 
 model Goal {
-  id              String    @id @default(cuid())
+  id              String             @id @default(cuid())
   userId          String
   linkedAccountId String?
   type            GoalType
   name            String
-  targetAmount    Decimal   @db.Decimal(19, 4)
-  currentAmount   Decimal   @db.Decimal(19, 4)
+  targetAmount    Decimal            @db.Decimal(19, 4)
+  currentAmount   Decimal            @db.Decimal(19, 4)
   targetDate      DateTime?
-  monthlyTarget   Decimal   @db.Decimal(19, 4)
-  notes           String?   @db.VarChar(1000)
+  monthlyTarget   Decimal            @db.Decimal(19, 4)
+  notes           String?            @db.VarChar(1000)
   color           String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  linkedAccount   Account?  @relation("GoalLinkedAccount", fields: [linkedAccountId, userId], references: [id, userId], onDelete: Restrict)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedAccount   Account?           @relation("GoalLinkedAccount", fields: [linkedAccountId, userId], references: [id, userId], onDelete: Restrict)
   contributions   GoalContribution[]
 
-  @@index([userId, targetDate])
   @@unique([id, userId])
+  @@index([userId, targetDate])
 }
 
 model GoalContribution {
@@ -465,8 +548,8 @@ model AIConversation {
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  AIMessage[]
 
-  @@index([userId, updatedAt(sort: Desc)])
   @@unique([id, userId])
+  @@index([userId, updatedAt(sort: Desc)])
 }
 
 model AIMessage {
@@ -499,4 +582,124 @@ model AuditEvent {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([entityType, entityId])
+}
+
+model FinancialConnection {
+  id                    String                      @id @default(cuid())
+  userId                String
+  provider              FinancialConnectionProvider
+  providerItemId        String
+  providerInstitutionId String?
+  institutionName       String
+  status                FinancialConnectionStatus   @default(PENDING)
+  accessTokenEncrypted  String?                     @db.Text
+  tokenKeyVersion       Int?
+  syncCursor            String?                     @db.Text
+  consentExpiresAt      DateTime?
+  lastSuccessfulSyncAt  DateTime?
+  lastInvestmentSyncAt  DateTime?
+  lastAttemptedSyncAt   DateTime?
+  errorCode             String?                     @db.VarChar(80)
+  errorMessageSafe      String?                     @db.VarChar(240)
+  disconnectedAt        DateTime?
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  user                  User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerAccounts      ProviderAccount[]
+  transactions          Transaction[]
+  syncRuns              SyncRun[]
+  syncJobs              SyncJob[]
+
+  @@unique([provider, providerItemId])
+  @@unique([id, userId])
+  @@index([userId, status])
+  @@index([userId, updatedAt(sort: Desc)])
+}
+
+model ProviderAccount {
+  id                    String              @id @default(cuid())
+  userId                String
+  financialConnectionId String
+  accountId             String              @unique
+  providerAccountId     String
+  officialName          String?
+  subtype               String?
+  maskLast4             String?             @db.VarChar(4)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialConnection   FinancialConnection @relation(fields: [financialConnectionId, userId], references: [id, userId], onDelete: Cascade)
+  account               Account             @relation(fields: [accountId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([financialConnectionId, providerAccountId])
+  @@unique([accountId, userId])
+  @@unique([id, userId])
+  @@index([userId, financialConnectionId])
+}
+
+model SyncRun {
+  id                        String              @id @default(cuid())
+  userId                    String
+  financialConnectionId     String
+  trigger                   SyncTrigger
+  status                    SyncRunStatus       @default(RUNNING)
+  startedAt                 DateTime            @default(now())
+  finishedAt                DateTime?
+  durationMs                Int?
+  accountsChanged           Int                 @default(0)
+  transactionsAdded         Int                 @default(0)
+  transactionsModified      Int                 @default(0)
+  transactionsRemoved       Int                 @default(0)
+  holdingsChanged           Int                 @default(0)
+  investmentActivityChanged Int                 @default(0)
+  providerCalls             Int                 @default(0)
+  errorCategory             String?             @db.VarChar(80)
+  createdAt                 DateTime            @default(now())
+  user                      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialConnection       FinancialConnection @relation(fields: [financialConnectionId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([financialConnectionId, startedAt(sort: Desc)])
+}
+
+model SyncJob {
+  id                    String              @id @default(cuid())
+  userId                String
+  financialConnectionId String
+  trigger               SyncTrigger
+  status                SyncJobStatus       @default(QUEUED)
+  dedupeKey             String              @unique
+  includeInvestments    Boolean             @default(false)
+  attempts              Int                 @default(0)
+  availableAt           DateTime            @default(now())
+  leaseExpiresAt        DateTime?
+  lastErrorCategory     String?             @db.VarChar(80)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialConnection   FinancialConnection @relation(fields: [financialConnectionId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([financialConnectionId, status])
+}
+
+model UsageMetric {
+  id           String              @id @default(cuid())
+  userId       String
+  day          DateTime            @db.Date
+  category     UsageMetricCategory
+  provider     String              @db.VarChar(60)
+  operation    String              @db.VarChar(80)
+  requestCount Int                 @default(0)
+  inputTokens  Int                 @default(0)
+  outputTokens Int                 @default(0)
+  units        Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day, category, provider, operation])
+  @@index([day, category])
+  @@index([userId, day(sort: Desc)])
 }

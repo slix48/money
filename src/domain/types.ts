@@ -60,10 +60,17 @@ export interface AccountRecord {
   institution: string;
   type: AccountType;
   balanceCents: number;
+  balanceStatus?: "AVAILABLE" | "UNAVAILABLE" | "STALE";
   availableBalanceCents?: number;
   isLiability: boolean;
   currency: string;
-  connectionStatus: "CONNECTED" | "NEEDS_ATTENTION" | "MANUAL" | "DISCONNECTED";
+  connectionStatus:
+    | "CONNECTED"
+    | "SYNCING"
+    | "NEEDS_ATTENTION"
+    | "TEMPORARILY_UNAVAILABLE"
+    | "MANUAL"
+    | "DISCONNECTED";
   source: "MOCK_PROVIDER" | "MANUAL" | "IMPORT" | "CONNECTED_PROVIDER";
   lastUpdatedAt: Date;
 }
@@ -73,7 +80,9 @@ export interface TransactionRecord {
   userId: string;
   accountId: string;
   linkedAccountId?: string;
+  refundForTransactionId?: string;
   date: Date;
+  authorizedDate?: Date;
   merchant: string;
   rawMerchant?: string;
   normalizedMerchant: string;
@@ -141,11 +150,12 @@ export interface HoldingRecord {
   name: string;
   securityType: "STOCK" | "ETF" | "MUTUAL_FUND" | "CASH" | "OTHER";
   quantity: number;
-  costBasisCents: number;
+  costBasisCents?: number;
   priceCents: number;
   currentValueCents: number;
   priceAsOf: Date;
   priceSource: "DEMO" | "MANUAL" | "MARKET_PROVIDER";
+  priceIsDelayed?: boolean;
 }
 
 export interface InvestmentActivityRecord {

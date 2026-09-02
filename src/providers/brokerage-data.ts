@@ -1,56 +1,94 @@
-import type {
-  HoldingRecord,
-  InvestmentActivityRecord,
-} from "@/domain/types";
-import { createDemoSnapshot, DEMO_USER_ID } from "@/domain/demo-data";
+import { createDemoSnapshot } from "@/domain/demo-data";
+
+export interface NormalizedHolding {
+  accountExternalId: string;
+  securityExternalId: string;
+  ticker: string;
+  name: string;
+  securityType: "STOCK" | "ETF" | "MUTUAL_FUND" | "CASH" | "OTHER";
+  quantity: number;
+  costBasisCents?: number;
+  priceCents: number;
+  currentValueCents: number;
+  currency: string;
+  priceAsOf: Date;
+  priceSource: string;
+  priceIsDelayed: boolean;
+}
+
+export interface NormalizedInvestmentActivity {
+  externalId: string;
+  accountExternalId: string;
+  securityExternalId?: string;
+  ticker?: string;
+  date: Date;
+  type: "BUY" | "SELL" | "DIVIDEND" | "INTEREST" | "CONTRIBUTION" | "WITHDRAWAL" | "FEE";
+  quantity?: number;
+  priceCents?: number;
+  amountCents: number;
+  feesCents: number;
+  costBasisCents?: number;
+  realizedGainCents?: number;
+  description?: string;
+}
 
 export interface BrokerageSyncRequest {
-  connectionId: string;
-  cursor?: string;
+  accessToken: string;
+  startDate: Date;
+  endDate: Date;
 }
 
 export interface BrokerageSyncResult {
-  connectionId: string;
-  cursor: string;
-  hasMore: boolean;
-  holdings: HoldingRecord[];
-  activity: InvestmentActivityRecord[];
+  holdings: NormalizedHolding[];
+  activity: NormalizedInvestmentActivity[];
   asOf: Date;
+  providerCalls: number;
 }
 
 export interface BrokerageDataProvider {
-  readonly id: string;
-  sync(
-    userId: string,
-    request: BrokerageSyncRequest,
-  ): Promise<BrokerageSyncResult>;
-  disconnect(userId: string, connectionId: string): Promise<void>;
+  readonly id: "plaid" | "mock";
+  sync(request: BrokerageSyncRequest): Promise<BrokerageSyncResult>;
 }
 
 export class MockBrokerageDataProvider implements BrokerageDataProvider {
-  readonly id = "mock-brokerage-data";
+  readonly id = "mock" as const;
 
-  async sync(
-    userId: string,
-    request: BrokerageSyncRequest,
-  ): Promise<BrokerageSyncResult> {
-    if (userId !== DEMO_USER_ID || request.connectionId !== "demo-brokerage") {
+  async sync(request: BrokerageSyncRequest): Promise<BrokerageSyncResult> {
+    if (request.accessToken !== "demo-access-token") {
       throw new Error("Brokerage connection not found");
     }
     const snapshot = createDemoSnapshot();
     return {
-      connectionId: request.connectionId,
-      cursor: "demo-brokerage-cursor-v1",
-      hasMore: false,
-      holdings: snapshot.holdings,
-      activity: request.cursor ? [] : snapshot.investmentActivity,
+      holdings: snapshot.holdings.map((holding) => ({
+        accountExternalId: holding.accountId,
+        securityExternalId: holding.id,
+        ticker: holding.ticker,
+        name: holding.name,
+        securityType: holding.securityType,
+        quantity: holding.quantity,
+        costBasisCents: holding.costBasisCents,
+        priceCents: holding.priceCents,
+        currentValueCents: holding.currentValueCents,
+        currency: "USD",
+        priceAsOf: holding.priceAsOf,
+        priceSource: "DEMO",
+        priceIsDelayed: true,
+      })),
+      activity: snapshot.investmentActivity.map((activity) => ({
+        externalId: activity.id,
+        accountExternalId: activity.accountId,
+        ticker: activity.ticker,
+        date: activity.date,
+        type: activity.type,
+        quantity: activity.quantity,
+        priceCents: activity.priceCents,
+        amountCents: activity.amountCents,
+        feesCents: activity.feesCents,
+        costBasisCents: activity.costBasisCents,
+        realizedGainCents: activity.realizedGainCents,
+      })),
       asOf: snapshot.generatedAt,
+      providerCalls: 1,
     };
-  }
-
-  async disconnect(userId: string, connectionId: string): Promise<void> {
-    if (userId !== DEMO_USER_ID || connectionId !== "demo-brokerage") {
-      throw new Error("Brokerage connection not found");
-    }
   }
 }

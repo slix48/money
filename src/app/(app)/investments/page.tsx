@@ -47,6 +47,15 @@ export default async function InvestmentsPage() {
     (left, right) => right.date.getTime() - left.date.getTime(),
   );
   const gain = performance.investmentGainLossCents;
+  const hasHoldings = snapshot.holdings.length > 0;
+  const providerValues = snapshot.holdings.some(
+    (holding) => holding.priceSource === "MARKET_PROVIDER",
+  );
+  const latestPriceAsOf = snapshot.holdings.reduce<Date | undefined>(
+    (latest, holding) =>
+      !latest || holding.priceAsOf > latest ? holding.priceAsOf : latest,
+    undefined,
+  );
 
   return (
     <div className="page-stack">
@@ -55,11 +64,11 @@ export default async function InvestmentsPage() {
         title="Investments"
         description="Portfolio value, contributions, returns, income, allocation, and concentration kept explicitly separate."
       />
-      <div className="data-banner"><span className="badge badge-demo">Demo prices</span><p>Market values shown here are mock development prices and are not live quotes.</p></div>
+      <div className="data-banner"><span className={`badge ${providerValues ? "" : "badge-demo"}`}>{providerValues ? "Institution values" : "Demo prices"}</span><p>{providerValues ? `Institution-reported values${latestPriceAsOf ? ` as of ${format(latestPriceAsOf, "MMM d, yyyy, h:mm a")}` : ""}. Delayed; not real-time exchange quotes.` : "Market values shown here are mock development prices and are not live quotes."}</p></div>
       <section className="metric-strip">
-        <div className="metric-cell"><span className="metric-label"><Landmark size={13} /> Portfolio value</span><strong className="metric-value">{formatCurrency(portfolio.valueCents, true)}</strong><span className="metric-meta">Current tracked market value</span></div>
+        <div className="metric-cell"><span className="metric-label"><Landmark size={13} /> Portfolio value</span><strong className="metric-value">{hasHoldings ? formatCurrency(portfolio.valueCents, true) : "Unavailable"}</strong><span className="metric-meta">{hasHoldings ? "Current tracked market value" : "No investment positions synchronized"}</span></div>
         <div className="metric-cell"><span className="metric-label"><CircleDollarSign size={13} /> Contributions YTD</span><strong className="metric-value">{formatCurrency(yearPerformance.contributionsCents, true)}</strong><span className="metric-meta">{formatCurrency(yearPerformance.withdrawalsCents, true)} withdrawn</span></div>
-        <div className="metric-cell"><span className="metric-label"><TrendingUp size={13} /> Investment gain/loss</span><strong className={cn("metric-value", gain !== null && gain >= 0 ? "positive" : "negative")}>{gain === null ? "Unavailable" : formatSignedCurrency(gain, true)}</strong><span className="metric-meta">Contributions and dividends excluded</span></div>
+        <div className="metric-cell"><span className="metric-label"><TrendingUp size={13} /> Investment gain/loss</span><strong className={cn("metric-value", gain !== null && gain >= 0 ? "positive" : "negative")}>{!hasHoldings || gain === null ? "Unavailable" : formatSignedCurrency(gain, true)}</strong><span className="metric-meta">Contributions and dividends excluded</span></div>
         <div className="metric-cell"><span className="metric-label"><ChartNoAxesCombined size={13} /> Dividends YTD</span><strong className="metric-value">{formatCurrency(yearPerformance.dividendsCents, true)}</strong><span className="metric-meta">{formatCurrency(yearPerformance.feesCents, true)} tracked fees</span></div>
       </section>
 
@@ -74,12 +83,12 @@ export default async function InvestmentsPage() {
         </div>
         <div className="panel">
           <div className="panel-header"><div><h2>Asset allocation</h2><p>Current value by security type</p></div><PieChart size={17} className="muted" /></div>
-          <div className="donut-layout vertical">
+          {hasHoldings ? <div className="donut-layout vertical">
             <div className="donut-chart"><DonutChart data={portfolio.allocation.map((item) => ({ name: titleCase(item.type), valueCents: item.valueCents }))} /></div>
             <div className="legend-list compact">
               {portfolio.allocation.map((item, index) => <div key={item.type}><i className={"legend-color color-" + (index + 1)} /><span><strong>{titleCase(item.type)}</strong></span><b>{formatPercent(item.weight)}</b></div>)}
             </div>
-          </div>
+          </div> : <div className="empty-state"><div><PieChart size={24} className="muted" /><h3>No investment data</h3><p>Positions will appear after a supported brokerage account synchronizes.</p></div></div>}
         </div>
       </section>
 
@@ -93,7 +102,7 @@ export default async function InvestmentsPage() {
 
       <section className="panel">
         <div className="panel-header"><div><h2>Positions</h2><p>Average and total cost basis remain distinct from current value</p></div></div>
-        <div className="table-wrap">
+        {hasHoldings ? <div className="table-wrap">
           <table className="data-table positions-table">
             <thead><tr><th>Security</th><th>Account</th><th className="text-right">Quantity</th><th className="text-right">Avg cost</th><th className="text-right">Price</th><th className="text-right">Total cost</th><th className="text-right">Value</th><th className="text-right">Gain / loss</th><th className="text-right">Weight</th></tr></thead>
             <tbody>{portfolio.positions.map((position) => (
@@ -103,14 +112,14 @@ export default async function InvestmentsPage() {
                 <td className="amount-cell">{position.quantity.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
                 <td className="amount-cell">{position.averageCostBasisCents === undefined ? "Not applicable" : formatCurrency(position.averageCostBasisCents)}</td>
                 <td className="amount-cell">{formatCurrency(position.priceCents)}</td>
-                <td className="amount-cell">{position.hasReliableCostBasis ? formatCurrency(position.costBasisCents, true) : "Unavailable"}</td>
+                <td className="amount-cell">{position.costBasisCents === undefined ? "Unavailable" : formatCurrency(position.costBasisCents, true)}</td>
                 <td className="amount-cell">{formatCurrency(position.currentValueCents, true)}</td>
                 <td className={cn("amount-cell", position.hasReliableCostBasis && (position.gainCents >= 0 ? "positive" : "negative"))}>{position.hasReliableCostBasis ? formatSignedCurrency(position.gainCents, true) : "Unavailable"}<small>{position.hasReliableCostBasis ? formatPercent(position.gainPercent) : "Missing cost basis"}</small></td>
                 <td className="amount-cell">{formatPercent(position.weight)}</td>
               </tr>
             ))}</tbody>
           </table>
-        </div>
+        </div> : <div className="empty-state"><div><Landmark size={24} className="muted" /><h3>No positions available</h3><p>MoneyOS has not received holdings for a connected investment account.</p></div></div>}
       </section>
 
       <section className="panel">

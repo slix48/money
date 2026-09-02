@@ -85,4 +85,39 @@ describe("environment parsing", () => {
       }),
     ).toThrow("APP_URL is required");
   });
+
+  it("requires complete Plaid credentials and token encryption", () => {
+    expect(() =>
+      parseEnvironment({
+        NODE_ENV: "development",
+        DEMO_MODE: "true",
+        PLAID_CLIENT_ID: "client-id",
+      }),
+    ).toThrow("PLAID_SECRET is required");
+
+    expect(() =>
+      parseEnvironment({
+        NODE_ENV: "development",
+        DEMO_MODE: "true",
+        PLAID_CLIENT_ID: "client-id",
+        PLAID_SECRET: "secret",
+        PROVIDER_TOKEN_ENCRYPTION_KEY: "too-short",
+      }),
+    ).toThrow("PROVIDER_TOKEN_ENCRYPTION_KEY");
+  });
+
+  it("accepts optional sandbox Plaid configuration", () => {
+    const parsed = parseEnvironment({
+      NODE_ENV: "development",
+      DEMO_MODE: "true",
+      PLAID_CLIENT_ID: "client-id",
+      PLAID_SECRET: "secret",
+      PLAID_ENV: "sandbox",
+      PLAID_WEBHOOK_URL: "https://example.test/api/providers/plaid/webhook",
+      PROVIDER_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+    });
+
+    expect(parsed.plaidConfigured).toBe(true);
+    expect(parsed.PLAID_ENV).toBe("sandbox");
+  });
 });

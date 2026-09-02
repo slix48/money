@@ -11,6 +11,7 @@ MoneyOS handles sensitive financial metadata. These are implemented controls and
 - AI has allowlisted read tools only and no database, mutation, credential, or provider execution access.
 - V1 cannot transfer money, trade, pay bills, change accounts, or cancel subscriptions externally.
 - Secrets and raw financial payloads are excluded from routine logs and client bundles.
+- Provider cursors, access tokens, and webhook bodies never cross the AI or browser trust boundaries.
 
 ## Authentication And Sessions
 
@@ -55,6 +56,22 @@ Before public production, use a least-privilege application role and evaluate Po
 
 The current CSP permits inline framework scripts/styles. Replace it with deployment-specific nonces or hashes after validating Next.js streaming and third-party integrations. Process-local rate limiting must move to Redis or another shared atomic limiter before multi-instance production. Only trust forwarding headers from the configured edge proxy.
 
+## Connected-Data Security
+
+- Plaid client credentials and access tokens are server-only. Link returns a short-lived Link token; the browser sends a public token to a same-origin authenticated exchange route and never receives the resulting access token.
+- Stored provider tokens use versioned AES-256-GCM authenticated encryption with a random nonce and a required 32-byte key.
+- Connection, refresh, reconnect, and disconnect lookups use both session-derived userId and connection ID. Foreign IDs return the same not-found response as missing IDs.
+- Provider accounts and transactions use same-tenant composite foreign keys. The database rejects cross-user connection/account relationships even if application validation fails.
+- Plaid webhooks are bounded, validated, and verified using the provider JWT public key and exact body hash. Stale/future signatures and altered bodies fail closed.
+- Verified webhook IDs become unique queue dedupe keys. Cursor commits, account changes, and transaction changes are atomic; failed runs retain the old cursor.
+- Sync jobs use leases and bounded retry. Safe failure categories reach the UI, not provider responses or raw error bodies.
+- Manual refresh has process rate limits plus a durable per-connection time-window dedupe key.
+- Disconnect calls provider revocation first. Credentials are cleared only after confirmation; history is preserved and marked stale/disconnected.
+
+The webhook endpoint is intentionally exempt from browser CSRF checks because provider signatures authenticate it. All user-controlled connection mutations still require canonical same-origin validation.
+
+Remaining provider launch work: managed KMS envelope encryption and rotation, webhook/revocation incident runbooks, shared abuse controls, verified production domains, least-privilege database/provider roles, provider vendor review, and privacy/retention operations.
+
 ## AI Security
 
 - FinancialToolContext receives session identity, not a user ID from the question/model.
@@ -91,6 +108,7 @@ V1ActionsUnavailable fails closed at capability/preparation/execution. No curren
 Implemented:
 
 - server-only secrets and providers
+- AES-256-GCM application encryption for financial-provider access tokens
 - ignored local environment files
 - hashed passwords and session tokens
 - safe audit metadata containing changed field names rather than balances/descriptions
@@ -98,7 +116,7 @@ Implemented:
 
 Infrastructure must provide TLS, encrypted disks/databases/backups, managed secrets, rotation, restore testing, retention, and access audit logs.
 
-Future field/application encryption should cover provider access/refresh tokens, account/routing identifiers, tax/identity data, raw provider payloads retained for reconciliation, and other high-impact identifiers. Use envelope encryption with a managed KMS, per-purpose keys, versioned ciphertext, rotation, and tightly scoped decrypt permissions. Passwords remain one-way hashes, not encrypted values. Searchable financial fields need a deliberate tokenization/index strategy rather than ad hoc deterministic encryption.
+The current application token-encryption key must move to managed KMS envelope encryption before material production use. Future field/application encryption should also cover account/routing identifiers, tax/identity data, any raw provider payloads deliberately retained for reconciliation, and other high-impact identifiers. Use per-purpose keys, versioned ciphertext, rotation, and tightly scoped decrypt permissions. Passwords remain one-way hashes, not encrypted values. Searchable financial fields need a deliberate tokenization/index strategy rather than ad hoc deterministic encryption.
 
 Before connecting real data, implement privacy notices, consent records, data inventory, purpose/retention limits, user export/deletion, provider revocation, backup deletion policy, support access controls, and vendor data-processing terms.
 
@@ -110,13 +128,14 @@ Before action execution, define an immutable event taxonomy, event integrity/ret
 
 ## Verification
 
-The automated suite covers passwords, token integrity/expiry, environment fail-closed behavior, canonical origin and JSON body controls, rate limits, route and repository IDOR boundaries, provider isolation, action fail-closed behavior, accounting rules, recurring intelligence, goals, investments, insights, and grounded AI tools. Playwright checks authenticated desktop routes, priority mobile layouts, horizontal overflow, charts, dark mode, primary mutations, AI provenance, and browser errors.
+The automated suite covers passwords, session/token integrity, provider-token encryption/tamper detection, signed webhook validation, environment fail-closed behavior, canonical origin and JSON controls, route/repository/provider IDOR boundaries, database tenant constraints, sync idempotency/cursor rollback, pending-posted/removal lifecycles, reconciliation, disconnect preservation, accounting rules, investments, insights, and grounded AI tools. CI applies migrations to real PostgreSQL from zero and from the prior migration state.
 
 ## Production Checklist
 
 - Independent threat model, application security review, and penetration test
 - MFA/passkeys, recovery, session management, and abuse controls
-- Distributed limits, durable queues, monitoring, alerting, and on-call procedures
+- Distributed request limits, queue monitoring/alerting, and on-call procedures
+- Managed KMS envelope encryption, key rotation, and provider-token recovery tests
 - Nonce/hash CSP, dependency/SAST/secret/container/IaC scanning in CI
 - Database least privilege and validated row-level security
 - Managed secrets, encryption/key rotation, encrypted backups, and restore exercises

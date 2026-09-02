@@ -178,7 +178,10 @@ async function seed() {
       name: holding.name,
       securityType: holding.securityType,
       quantity: holding.quantity,
-      costBasis: holding.costBasisCents / 100,
+      costBasis:
+        holding.costBasisCents === undefined
+          ? null
+          : holding.costBasisCents / 100,
       price: holding.priceCents / 100,
       currentValue: holding.currentValueCents / 100,
       priceAsOf: holding.priceAsOf,

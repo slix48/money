@@ -69,6 +69,7 @@ export class PrismaFinancialRepository implements FinancialRepository {
           orderBy: [{ type: "asc" }, { name: "asc" }],
         },
         transactions: {
+          where: { isRemoved: false },
           include: { category: { select: { name: true } } },
           orderBy: { date: "desc" },
         },
@@ -107,6 +108,7 @@ export class PrismaFinancialRepository implements FinancialRepository {
         institution: account.institution,
         type: account.type,
         balanceCents: toCents(account.balance),
+        balanceStatus: account.balanceStatus,
         availableBalanceCents:
           account.availableBalance === null ? undefined : toCents(account.availableBalance),
         isLiability: account.isLiability,
@@ -120,7 +122,9 @@ export class PrismaFinancialRepository implements FinancialRepository {
         userId: transaction.userId,
         accountId: transaction.accountId,
         linkedAccountId: transaction.linkedAccountId ?? undefined,
+        refundForTransactionId: transaction.refundForTransactionId ?? undefined,
         date: transaction.date,
+        authorizedDate: transaction.authorizedDate ?? undefined,
         merchant: transaction.merchant,
         rawMerchant: transaction.rawMerchant ?? undefined,
         normalizedMerchant:
@@ -179,7 +183,8 @@ export class PrismaFinancialRepository implements FinancialRepository {
           name: holding.name,
           securityType: holding.securityType,
           quantity: Number(holding.quantity),
-          costBasisCents: toCents(holding.costBasis),
+          costBasisCents:
+            holding.costBasis === null ? undefined : toCents(holding.costBasis),
           priceCents: toCents(holding.price),
           currentValueCents: toCents(holding.currentValue),
           priceAsOf: holding.priceAsOf,
@@ -189,6 +194,7 @@ export class PrismaFinancialRepository implements FinancialRepository {
               : holding.priceSource === "MANUAL"
                 ? ("MANUAL" as const)
                 : ("MARKET_PROVIDER" as const),
+          priceIsDelayed: holding.priceIsDelayed,
         })),
       ),
       investmentActivity: user.investmentAccounts.flatMap((investmentAccount) =>
@@ -343,7 +349,7 @@ export class PrismaFinancialRepository implements FinancialRepository {
       const result = await database.transaction.updateMany({
         where: { id: transactionId, userId: viewerUserId },
         data: {
-          ...(categoryId ? { categoryId } : {}),
+          ...(categoryId ? { categoryId, categoryOverride: true } : {}),
           ...(update.notes !== undefined ? { notes: update.notes } : {}),
           ...(update.isRecurring !== undefined
             ? {

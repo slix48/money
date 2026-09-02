@@ -4,25 +4,24 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 
 ## Financial Data
 
-- Select and contract with an aggregation provider.
-- Implement its adapter for connection sessions, server-side token exchange, encrypted token storage, consent/reconnect UX, verified webhooks, cursors, removals, and disconnect/revocation.
-- Add a durable sync queue with retries, backoff, dead letters, per-connection locks, and freshness/health alerts.
-- Implement idempotent external-ID upserts, pending-to-posted matching, duplicate detection, internal-transfer pairing, card-payment classification, refund matching, and reconciliation reports.
-- Define raw-payload minimization, encryption, access, and retention.
+- Obtain Plaid production approval/credentials and complete contract, pricing, privacy, security, and subprocessor review.
+- Move the provider-token key hierarchy to managed KMS envelope encryption with rotation and recovery procedures.
+- Add queue/dead-letter operator views, freshness/health alerts, reconciliation reports, and provider incident runbooks.
+- Add consent records, user data export/deletion, retention enforcement, and verified provider-revocation operations.
+- Evaluate transfer/card/refund reconciliation accuracy on de-identified production-like samples and add user correction workflows where missing.
 
 ## PostgreSQL And Scale
 
-- Add CI integration tests that apply every migration to disposable PostgreSQL, run the seed, and test Prisma authorization/constraints.
 - Add paginated repository queries for long transaction and activity histories.
 - Move dashboard/insight recomputation to background summaries as data grows.
 - Validate least-privilege roles and row-level security with application, worker, migration, support, and restore workflows.
+- Add queue backlog/lease monitoring and decide from measurements whether a dedicated worker is necessary.
 
 ## Market And Brokerage Data
 
 - Select licensed quote/security-metadata sources and define delay/entitlement labels.
 - Add symbol/security master mapping, corporate actions, splits, currencies/FX policy, historical prices, and reliable sector coverage.
-- Implement a real read-only BrokerageDataProvider for holdings and activity.
-- Reconcile positions, cash, fees, transfers, tax lots, and missing basis.
+- Validate Plaid read-only Investments coverage across supported institutions and reconcile positions, cash, fees, transfers, tax lots, and missing basis.
 - Define and validate time-weighted/money-weighted performance before exposing those metrics.
 
 ## Investment Workflows
@@ -44,7 +43,7 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 - Replace process-local limits with a shared atomic service.
 - Add passkeys/MFA, email verification, recovery, session/device management, revoke-all, and step-up authentication.
 - Add user data export/deletion, consent records, retention enforcement, provider revocation, and backup-deletion policy.
-- Configure managed secrets/KMS, field encryption for provider credentials and high-impact identifiers, TLS, encrypted backups, key rotation, restore exercises, and support access controls.
+- Configure managed secrets/KMS envelope encryption, field encryption for high-impact identifiers, TLS, encrypted backups, key rotation, restore exercises, and support access controls.
 - Add safe metrics/tracing, audit alerts, incident response, dependency/SAST/secret/container/IaC scanning, and production browser checks.
 - Replace the compatible inline CSP with nonce/hash enforcement.
 - Remove the temporary deepmerge-ts override after Prisma ships and the patched dependency is audited directly.
@@ -57,8 +56,8 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 - Do not enable subscription cancellation without a vetted provider, capability truth, consumer disclosures, and operational escalation.
 - Do not implement transfers, payments, savings movement, or brokerage orders before legal, regulatory, compliance, partner, security, fraud/risk, insurance, and operational approval.
 
-## Product Billing
+## Deployment Operations
 
-- If monetization is added, use hosted processor checkout/customer portal behind a product-billing adapter.
-- Verify billing webhooks, use idempotency, and store only customer/subscription references and entitlements.
-- Keep MoneyOS product billing completely separate from user financial-action providers and never store raw card data.
+- In Vercel, confirm money is the canonical project, compare domains/environment variables/traffic, then manually disconnect or pause the duplicate money-o9u5 project.
+- Configure the protected sync-drain schedule on only the canonical project and alert on queued/failed jobs.
+- Add production browser coverage for Plaid Sandbox Link using provider fixtures where interactive automation is not available.

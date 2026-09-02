@@ -10,6 +10,7 @@ import {
   safeApiError,
 } from "@/lib/security";
 import { assistantQuerySchema } from "@/lib/validation";
+import { env } from "@/lib/env";
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -32,6 +33,19 @@ export async function POST(request: Request) {
     const repository = await getFinancialRepository();
     const context = createFinancialToolContext(user.id, repository);
     const reply = await askFinancialAssistant(parsed.data.message, context);
+    if (!env.demoMode) {
+      const { recordAiUsage } = await import("@/lib/usage-metrics");
+      await recordAiUsage({
+        userId: user.id,
+        provider: "DETERMINISTIC",
+        operation: "FINANCIAL_ASSISTANT",
+        inputCharacters: parsed.data.message.length,
+        outputCharacters:
+          reply.answer.length +
+          (reply.calculation?.join(" ").length ?? 0) +
+          (reply.note?.length ?? 0),
+      });
+    }
     return NextResponse.json(reply, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return safeApiError(error);

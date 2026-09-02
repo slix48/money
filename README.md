@@ -14,7 +14,9 @@ V1 is deliberately read-oriented. It does not move money, trade securities, canc
 - Cadence-aware recurring detection, subscription review controls, price-change annual impact, and attention ranking
 - Editable income streams, goal contribution history/scenarios, portfolio performance methodology, Money Flow, financial health, and What Changed
 - A 29-tool read-only financial AI registry with grounded calculation receipts and scenario tools
-- Cursor-ready bank/brokerage, market-data, external-AI, cancellation, and financial-action provider boundaries
+- Production-shaped Plaid Link, server-side token exchange, signed webhooks, incremental transaction sync, and read-only investment import behind provider-neutral contracts
+- Durable PostgreSQL sync jobs, safe retries, synchronization health UI, conservative transfer/card/refund reconciliation, and unavailable-data states
+- Real PostgreSQL migration-from-zero, migration-upgrade, seed, integration, type, lint, unit, and build verification in GitHub Actions
 - PostgreSQL/Prisma plus a provider-backed in-memory demo path with several months of realistic activity
 - Argon2id authentication, hashed opaque production sessions, canonical-origin checks, validation, rate limiting, route/repository IDOR tests, and same-tenant database constraints
 
@@ -65,6 +67,28 @@ npm run dev
 
 The seed is idempotent and creates the same demo login shown above. Do not use the demo password outside local development.
 
+## Connected Data With Plaid Sandbox
+
+Demo mode remains the default. To exercise a real provider-shaped connection without real bank credentials:
+
+1. Create Plaid Sandbox credentials.
+2. Set DEMO_MODE=false and configure PostgreSQL as above.
+3. Generate a 32-byte base64 provider-token encryption key.
+4. Set the Plaid variables shown in .env.example.
+5. Run the migrations and application, then use Settings -> Connected accounts.
+
+~~~dotenv
+PLAID_CLIENT_ID="..."
+PLAID_SECRET="..."
+PLAID_ENV="sandbox"
+PLAID_WEBHOOK_URL="https://your-tunnel-or-deployment/api/providers/plaid/webhook"
+PLAID_REDIRECT_URI="https://your-tunnel-or-deployment/settings"
+PROVIDER_TOKEN_ENCRYPTION_KEY="32-random-bytes-as-base64"
+CRON_SECRET="random-bearer-secret-for-the-queue-drain"
+~~~
+
+Plaid access tokens are exchanged, encrypted, and used only on the server. Automated tests use fixtures and never depend on Plaid availability.
+
 ## Vercel Demo Deployment
 
 The mock-only demo can deploy without PostgreSQL. Set these project variables for a stable hosted deployment:
@@ -93,6 +117,13 @@ Remove `DATABASE_URL` in demo mode. Blank or malformed optional values fail clos
 
 `test:visual` expects the app at `http://127.0.0.1:3000`. Override it with `MONEYOS_URL`. On Windows it defaults to installed Microsoft Edge; set `PLAYWRIGHT_EXECUTABLE_PATH` elsewhere or provide an installed Chrome channel.
 
+Additional verification commands:
+
+| Command | Purpose |
+| --- | --- |
+| npm run db:verify:migrations | Apply all migrations to an empty PostgreSQL database and test the previous-to-current upgrade path; requires DATABASE_URL and UPGRADE_DATABASE_URL |
+| npm run test:postgres | Run tenant, sync, reconciliation, lifecycle, disconnect, and AI integration tests against PostgreSQL |
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -103,6 +134,18 @@ Remove `DATABASE_URL` in demo mode. Blank or malformed optional values fail clos
 | `DEMO_MODE` | No | `true` uses mock providers; `false` uses PostgreSQL |
 
 Only server-side modules read these values. Never expose financial-provider, database, session, or AI credentials through `NEXT_PUBLIC_*` variables.
+
+Connected-data variables:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| PLAID_CLIENT_ID | With Plaid | Server-only Plaid client identifier |
+| PLAID_SECRET | With Plaid | Server-only environment secret |
+| PLAID_ENV | With Plaid | sandbox or production |
+| PLAID_WEBHOOK_URL | Recommended | Public signed-webhook endpoint |
+| PLAID_REDIRECT_URI | When OAuth institutions require it | Registered return URI |
+| PROVIDER_TOKEN_ENCRYPTION_KEY | With Plaid | Exactly 32 bytes encoded as base64, or 64 hexadecimal characters |
+| CRON_SECRET | For scheduled queue recovery | Bearer secret for the internal sync-drain route |
 
 ## Financial Semantics
 
@@ -117,9 +160,11 @@ The assistant does not calculate by improvising prose. It selects an allowlisted
 - [FINANCIAL_CALCULATIONS.md](./FINANCIAL_CALCULATIONS.md): exact accounting and performance methodology
 - [AI_TOOLS.md](./AI_TOOLS.md): read-tool catalog, grounding, isolation, and future action flow
 - [PROVIDERS.md](./PROVIDERS.md): real bank, brokerage, market, model, and action integration requirements
+- [SYNC_ENGINE.md](./SYNC_ENGINE.md): connection lifecycle, token handling, cursors, reconciliation, queue, webhooks, and disconnect behavior
+- [COSTS.md](./COSTS.md): required/optional services, billing drivers, cost controls, and 100/1,000/10,000-user architecture
 - [ROADMAP.md](./ROADMAP.md): phased product and regulatory path
 - [TODO.md](./TODO.md): integrations that require credentials, infrastructure, or regulated partners
 
 ## V1 Limitations
 
-Mock bank and market providers are development fixtures, not live feeds. The deterministic assistant is not an investment adviser and does not guarantee outcomes. Rate limiting is process-local and must move to a distributed store before multi-instance deployment. See `SECURITY.md` and `TODO.md` before treating this build as production-ready financial infrastructure.
+Plaid production access, a production PostgreSQL service, public webhook routing, KMS-backed key management, and privacy/identity hardening still require external setup. Institution-supplied investment values may be delayed and are labeled with source/as-of state. The deterministic assistant is not an investment adviser and does not guarantee outcomes. Request rate limiting is process-local; refresh deduplication and sync jobs are durable in PostgreSQL. See SECURITY.md, SYNC_ENGINE.md, COSTS.md, and TODO.md before production launch.

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_USER_ID } from "@/domain/demo-data";
 import { MockBrokerageDataProvider } from "@/providers/brokerage-data";
 import { MockFinancialDataProvider } from "@/providers/financial-data";
 import { MockMarketDataProvider } from "@/providers/market-data";
@@ -8,19 +7,21 @@ describe("provider contracts", () => {
   it("supports cursor-based financial and brokerage syncs", async () => {
     const financial = new MockFinancialDataProvider();
     const brokerage = new MockBrokerageDataProvider();
-    const initial = await financial.sync(DEMO_USER_ID, {
-      connectionId: "demo-connection",
-    });
-    const incremental = await financial.sync(DEMO_USER_ID, {
-      connectionId: "demo-connection",
+    const initial = await financial.syncTransactions({
+      accessToken: "demo-access-token",
+    }, "MoneyOS Demo Provider");
+    const incremental = await financial.syncTransactions({
+      accessToken: "demo-access-token",
       cursor: initial.cursor,
-    });
-    const positions = await brokerage.sync(DEMO_USER_ID, {
-      connectionId: "demo-brokerage",
+    }, "MoneyOS Demo Provider");
+    const positions = await brokerage.sync({
+      accessToken: "demo-access-token",
+      startDate: new Date("2025-01-01"),
+      endDate: new Date("2026-12-31"),
     });
 
-    expect(initial.addedOrUpdatedTransactions.length).toBeGreaterThan(50);
-    expect(incremental.addedOrUpdatedTransactions).toEqual([]);
+    expect(initial.addedTransactions.length).toBeGreaterThan(50);
+    expect(incremental.addedTransactions).toEqual([]);
     expect(positions.holdings.length).toBeGreaterThan(1);
   });
 
@@ -29,10 +30,14 @@ describe("provider contracts", () => {
     const brokerage = new MockBrokerageDataProvider();
 
     await expect(
-      financial.sync("another-user", { connectionId: "demo-connection" }),
+      financial.createConnectionSession({ userId: "another-user" }),
     ).rejects.toThrow("not found");
     await expect(
-      brokerage.sync("another-user", { connectionId: "demo-brokerage" }),
+      brokerage.sync({
+        accessToken: "wrong-token",
+        startDate: new Date("2025-01-01"),
+        endDate: new Date("2026-12-31"),
+      }),
     ).rejects.toThrow("not found");
   });
 

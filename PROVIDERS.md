@@ -7,7 +7,7 @@ Provider adapters translate external systems into MoneyOS domain records. Pages,
 FinancialDataProvider:
 
 - creates a short-lived connection session
-- reports consent and connection health
+- exchanges temporary connection credentials on the server
 - supports initial and cursor-based incremental account/transaction sync
 - reports removed external transaction IDs
 - verifies provider webhooks inside the adapter
@@ -15,9 +15,9 @@ FinancialDataProvider:
 
 BrokerageDataProvider:
 
-- cursor-syncs holdings and investment activity
-- preserves account/user ownership
-- disconnects a specific brokerage connection
+- imports a bounded holdings snapshot and overlapping investment activity
+- preserves provider account/security/activity identity and missing-data states
+- remains read-only and separate from market/order execution
 
 MarketDataProvider:
 
@@ -37,22 +37,40 @@ FinancialActionProvider and SubscriptionActionProvider:
 - require idempotency and auditable results
 - are implemented by V1ActionsUnavailable in the current product
 
-## Bank Connection Requirements
+## Current Adapters
 
-A real aggregation adapter needs:
+PlaidFinancialDataProvider is implemented with the official Plaid SDK:
+
+- Transactions is required and Investments is optional in Link
+- public-token exchange and Item removal are server-only
+- Plaid account types map into MoneyOS account types
+- Transactions Sync supplies additions, modifications, removals, and cursors
+- Plaid's positive-outflow convention is converted at the adapter boundary
+- provider merchant/category data remains a hint and original descriptions are preserved
+- webhook JWT, key ID, issued-at window, and exact body hash are verified
+
+PlaidBrokerageDataProvider imports read-only holdings, security metadata, and investment activity. Institution values retain source/as-of/delay state. Missing basis remains missing.
+
+MockFinancialDataProvider and MockBrokerageDataProvider remain deterministic development/test adapters. MockMarketDataProvider remains the only dedicated quote adapter, because adding an unlicensed or costly real-time feed is not justified for this phase.
+
+## Bank Connection Lifecycle
+
+The implemented Plaid path provides:
 
 1. A server-created link session scoped to the authenticated user and allowed redirect URI.
 2. Server-side exchange of temporary credentials.
-3. Encrypted storage of provider access/refresh tokens and connection identifiers.
+3. AES-256-GCM storage of provider access tokens and isolated connection identifiers.
 4. Initial sync followed by durable cursor-based incremental sync.
-5. Verified, replay-protected webhook intake that only enqueues work.
+5. Signed, deduplicated webhook intake that only enqueues work.
 6. Idempotent upserts keyed by provider connection, source, and external ID.
 7. Pending-to-posted reconciliation, removed transaction handling, duplicate detection, transfer pairing, and refund matching.
 8. Connection-health, consent-expiry, reconnect, provider-outage, and disconnect UX.
-9. Backoff, dead-letter handling, reconciliation reports, freshness metrics, and operator alerts.
-10. Data export/deletion and provider-token revocation.
+9. Bounded retry, leases, safe failure categories, freshness metadata, and provider call metrics.
+10. Provider-token revocation with history-preserving disconnect.
 
-Never perform a large provider sync inside a user request. A queue worker should sync, normalize, reconcile, persist in a database transaction, update freshness, and recompute affected snapshots/insights.
+Production still needs managed KMS key protection/rotation, operator alerts, dead-letter tooling, formal reconciliation reports, data export/deletion, retention enforcement, and provider/vendor launch approval.
+
+Never perform a large provider sync inside a user request. The PostgreSQL queue syncs, normalizes, reconciles, persists atomically, updates freshness, and recomputes recurring/income records from a bounded 18-month history plus the current net-worth snapshot. See SYNC_ENGINE.md.
 
 ## Brokerage Requirements
 
@@ -100,14 +118,8 @@ Capability can be unavailable, API-based, assisted, or manual. Preparation must 
 
 Transfers, bill payments, savings transfers, and brokerage orders follow the same trusted flow but are not implemented. They require regulated partners, separate services, threat models, limits, support, exception handling, and legal/compliance approval.
 
-## Product Billing
-
-Charging users for MoneyOS is separate from moving their financial funds. For low operating complexity, use a hosted checkout and customer portal from a payment processor behind a future product-billing adapter. Annual plans reduce transaction count; ACH can be offered for suitable larger invoices. Processing fees cannot be made zero without becoming a payment processor, which MoneyOS should not attempt.
-
-Do not store card data, build a card vault, or commingle subscription billing code with FinancialActionProvider. Verify billing webhooks, use idempotency, and store only processor customer/subscription references and entitlement state.
-
 ## Failure Semantics
 
 Adapters should return stable internal error codes without leaking raw provider responses to clients. Distinguish retryable outage/rate-limit errors from consent, authentication, unsupported-account, and permanent data errors. Logs may contain request IDs, connection IDs after pseudonymization, counts, cursors after protection, and timing. They must not contain access tokens, raw payloads, full histories, balances, or account numbers.
 
-MockFinancialDataProvider and MockBrokerageDataProvider exercise cursor contracts and reject other users. MockMarketDataProvider is for development only.
+Provider pages render stored data and do not call adapters. Adapters return stable normalized records and safe internal failure categories without leaking SDK response bodies. UsageMetric and SyncRun record calls/counts/timing, never financial payloads. Mock providers are for development and CI only.

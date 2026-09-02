@@ -33,9 +33,11 @@ proposal -> policy -> user confirmation -> trusted provider -> audit/reconcile
 - src/domain: provider-neutral records, integer-cent calculations, realistic fixtures, recurring detection, insight ranking, financial health, and What Changed.
 - src/data: FinancialRepository plus demo and Prisma implementations. All reads and writes are scoped by authenticated user.
 - src/providers: cursor-based bank/brokerage sync, quote provenance, external AI, subscription-action, and financial-action contracts.
+- src/sync: connection lifecycle, durable PostgreSQL queue, cursor engine, normalization/reconciliation, Prisma persistence, and read-only investment import.
 - src/auth: Argon2id passwords, opaque/signed sessions, cookies, and server-only DAL.
 - src/ai: fixed read-tool catalog, deterministic planning, structured execution, and grounded answer composition.
 - src/app/api: authenticated, origin-checked, rate-limited JSON boundaries for auth, transactions, recurring records, income streams, goals/contributions, and financial questions.
+- src/app/api/connections and src/app/api/providers: Plaid Link exchange, tenant-scoped refresh/disconnect, signed webhooks, and protected queue recovery.
 - src/components: preserved responsive product UI, accessible charts, filters/tables, drawers/dialogs, Money Flow, and chat.
 - prisma: relational schema, tenant-integrity migrations, generated client, and idempotent development seed.
 
@@ -57,6 +59,7 @@ Core models:
 
 - User, Session, AuditEvent
 - Account, Category, Transaction
+- FinancialConnection, ProviderAccount, SyncJob, SyncRun, UsageMetric
 - RecurringTransaction, IncomeStream
 - InvestmentAccount, Holding, InvestmentTransaction
 - NetWorthSnapshot
@@ -65,6 +68,8 @@ Core models:
 - AIConversation, AIMessage
 
 Financial and AI records carry direct user ownership. Parent tables have composite id/userId keys where needed, preventing a row from referencing another tenant's parent. AIMessage ownership is copied from and constrained to its conversation.
+
+Provider metadata stays separate from MoneyOS accounts and transactions. Connection-scoped external IDs drive idempotency. Removed transactions are retained as soft removals; raw descriptions and normalized merchants are separate; user classification overrides survive provider updates. Account balances carry AVAILABLE, STALE, or UNAVAILABLE state so an outage cannot appear as a zero balance.
 
 Indexes cover common user/date, user/type, user/category, merchant, pending-status, recurring-status, holding-value, and conversation access paths. Historical net worth is stored as snapshots instead of reconstructed from today's balances.
 
@@ -101,24 +106,31 @@ No action provider is reachable from the AI registry or current routes. Future e
 
 ## Provider And Sync Strategy
 
-FinancialDataProvider and BrokerageDataProvider use connection-scoped cursors so initial and incremental sync share one contract. Webhook verification stays inside the adapter; verified events should enqueue background work rather than perform sync in a request. External IDs, source provenance, raw/normalized fields, and removal records support reconciliation.
+PlaidFinancialDataProvider implements Link-token creation, server-side public-token exchange, account normalization, Transactions Sync pagination, signed-webhook verification, and provider revocation behind FinancialDataProvider. MockFinancialDataProvider remains the credential-free demo/test adapter.
 
-MarketDataProvider returns source, as-of time, and delay state. Mock prices are delayed DEMO records. AIProvider is an untrusted planning/wording adapter. See PROVIDERS.md for connection, credential, webhook, downtime, and disconnection requirements.
+FinancialSyncEngine fetches every cursor page before one atomic commit. It handles additions, modifications, removals, pending-to-posted replacement, provider conflict restart, and conservative transfer/card-payment/refund reconciliation. SyncJob provides durable deduplication, leases, and bounded retry in PostgreSQL. Next.js after-processing supplies low-latency execution; a protected scheduled drain supplies recovery without an always-running worker.
+
+PlaidBrokerageDataProvider imports read-only holdings and investment activity. Cost basis remains nullable, values carry source/as-of/delay state, and investment product failure does not erase bank data. No provider exposes trading.
+
+MarketDataProvider returns source, as-of time, and delay state. Mock prices are delayed DEMO records; synchronized institution values are clearly labeled and no separately licensed real-time market feed is claimed. AIProvider is an untrusted planning/wording adapter. See PROVIDERS.md and SYNC_ENGINE.md.
 
 ## Performance Shape
 
-Server pages load one user snapshot and calculate derived views in process. FinancialToolContext caches that snapshot per question, avoiding repeated repository loads for multi-tool answers. Common database paths are indexed and Prisma queries include related records in bounded batches rather than per-row calls.
+Server pages load stored synchronized records and calculate derived views in process; page renders never call a financial provider. FinancialToolContext caches one tenant-scoped snapshot per question, avoiding repeated repository loads for multi-tool answers. Common database paths are indexed. Account and holding sync loads existing records in batches before upserts rather than doing lookup queries per provider row.
 
 The snapshot repository is appropriate for the current dataset but is not the final high-scale read model. Before large histories, add paginated transaction queries, database aggregates/materialized summaries, background snapshot/insight jobs, and bounded AI tool payloads.
 
 ## Deployment Direction
 
-Deploy as a Node.js service with PostgreSQL. Vercel demo mode needs no database and derives its canonical origin from VERCEL_URL when APP_URL is absent. Before horizontal production scaling:
+Deploy as a Node.js service with PostgreSQL. Provider-backed modules are lazy-loaded so Vercel demo mode needs no database and derives its canonical origin from VERCEL_URL when APP_URL is absent. GitHub Actions provisions PostgreSQL and verifies zero-state migrations, the previous-to-current upgrade, seed, integration tests, static checks, unit tests, and production build. Before horizontal production scaling:
 
 - replace process-local rate limiting with a shared atomic store
-- add a durable queue and worker for provider sync/recomputation
+- decide whether the durable PostgreSQL queue needs a dedicated worker based on measured latency and failure rates
+- move provider token key protection to managed KMS envelope encryption
 - add observability that excludes financial payloads
 - validate row-level security and least-privilege database roles
 - add exports/deletion, recovery, MFA/passkeys, and session management
 
 Mobile clients should call versioned authenticated APIs over the same domain and tool services, never duplicate accounting logic.
+
+The repository has no Vercel project-link configuration. Both money and money-o9u5 appear to be dashboard-side Git integrations for the same repository. Treat money as canonical by exact product name and manually disconnect or pause money-o9u5 only after verifying domains, environment variables, and traffic in the Vercel dashboard. Do not configure duplicate cron drains.

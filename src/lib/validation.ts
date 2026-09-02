@@ -46,6 +46,14 @@ export const transactionUpdateSchema = z
 
 export const entityIdSchema = z.string().trim().min(1).max(100);
 
+export const connectionSessionSchema = z.object({
+  connectionId: entityIdSchema.optional(),
+});
+
+export const publicTokenExchangeSchema = z.object({
+  publicToken: z.string().trim().min(10).max(2_000),
+});
+
 export const recurringUpdateSchema = z
   .object({
     status: z.enum(["ACTIVE", "POSSIBLE", "CANCELLED", "IGNORED"]).optional(),

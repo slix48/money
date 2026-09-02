@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: moneyos
+          POSTGRES_USER: moneyos
+          POSTGRES_PASSWORD: moneyos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U moneyos -d moneyos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://moneyos:moneyos@localhost:5432/moneyos?schema=public
+      UPGRADE_DATABASE_URL: postgresql://moneyos:moneyos@localhost:5432/moneyos_upgrade?schema=public
+      SESSION_SECRET: ci-session-secret-at-least-32-characters
+      PROVIDER_TOKEN_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+      APP_URL: http://localhost:3000
+      DEMO_MODE: "false"
+      NODE_ENV: test
+      TEST_POSTGRES: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - name: Create upgrade database
+        env:
+          PGPASSWORD: moneyos
+        run: createdb -h localhost -U moneyos moneyos_upgrade
+      - name: Verify empty and upgrade migration paths
+        run: npm run db:verify:migrations
+      - name: Verify seed
+        run: npm run db:seed
+      - name: PostgreSQL integration tests
+        run: npm run test:postgres
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - name: Production build
+        env:
+          NODE_ENV: production
+        run: npm run build

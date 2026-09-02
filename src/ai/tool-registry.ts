@@ -129,6 +129,7 @@ const toolRegistry: Record<FinancialToolName, ToolDefinition> = {
         balanceCents: account.balanceCents,
         availableBalanceCents: account.availableBalanceCents,
         currency: account.currency,
+        balanceStatus: account.balanceStatus ?? "AVAILABLE",
         status: account.connectionStatus,
         lastUpdatedAt: account.lastUpdatedAt.toISOString(),
       }));
@@ -149,6 +150,7 @@ const toolRegistry: Record<FinancialToolName, ToolDefinition> = {
         availableBalanceCents: account.availableBalanceCents,
         isLiability: account.isLiability,
         currency: account.currency,
+        balanceStatus: account.balanceStatus ?? "AVAILABLE",
         source: account.source,
         status: account.connectionStatus,
         lastUpdatedAt: account.lastUpdatedAt.toISOString(),

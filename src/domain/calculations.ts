@@ -359,6 +359,7 @@ export function calculateNetWorth(accounts: AccountRecord[]): NetWorthSummary {
   let otherAssetsCents = 0;
 
   for (const account of accounts) {
+    if (account.balanceStatus === "UNAVAILABLE") continue;
     if (account.isLiability || account.balanceCents < 0) {
       debtCents += Math.abs(account.balanceCents);
       continue;
@@ -411,7 +412,7 @@ export function calculatePortfolio(holdings: HoldingRecord[]): PortfolioSummary 
   const effectiveCostBasis = (holding: HoldingRecord) =>
     holding.securityType === "CASH"
       ? holding.currentValueCents
-      : holding.costBasisCents;
+      : holding.costBasisCents ?? 0;
   const costBasisCents = holdings.reduce(
     (sum, holding) => sum + effectiveCostBasis(holding),
     0,
@@ -424,14 +425,17 @@ export function calculatePortfolio(holdings: HoldingRecord[]): PortfolioSummary 
         ...holding,
         weight: valueCents === 0 ? 0 : holding.currentValueCents / valueCents,
         averageCostBasisCents:
-          holding.quantity > 0 && holding.securityType !== "CASH"
+          holding.quantity > 0 &&
+          holding.securityType !== "CASH" &&
+          holding.costBasisCents !== undefined
             ? Math.round(holding.costBasisCents / holding.quantity)
             : undefined,
         gainCents,
         gainPercent:
           positionCostBasisCents === 0 ? 0 : gainCents / positionCostBasisCents,
         hasReliableCostBasis:
-          holding.securityType === "CASH" || holding.costBasisCents > 0,
+          holding.securityType === "CASH" ||
+          (holding.costBasisCents !== undefined && holding.costBasisCents > 0),
       };
     })
     .sort((a, b) => b.currentValueCents - a.currentValueCents);
@@ -525,7 +529,9 @@ export function calculateInvestmentPerformance(
     ? null
     : sells.reduce((sum, entry) => sum + (entry.realizedGainCents ?? 0), 0);
   const missingHoldingCostBasis = holdings.some(
-    (holding) => holding.securityType !== "CASH" && holding.costBasisCents <= 0,
+    (holding) =>
+      holding.securityType !== "CASH" &&
+      (holding.costBasisCents === undefined || holding.costBasisCents <= 0),
   );
   // Current holdings cannot establish gain for an earlier period without an
   // opening valuation. Returning all-time unrealized gain would be misleading.
@@ -537,7 +543,7 @@ export function calculateInvestmentPerformance(
           sum +
           (holding.securityType === "CASH"
             ? 0
-            : holding.currentValueCents - holding.costBasisCents),
+            : holding.currentValueCents - (holding.costBasisCents ?? 0)),
         0,
       );
   const investmentGainLossCents =

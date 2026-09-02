@@ -9,25 +9,25 @@ The roadmap preserves a strict separation between financial intelligence and reg
 - Add production observability, accessibility, privacy controls, exports, account recovery, MFA/passkeys, and distributed security controls.
 - Integrate an external model only through the permissioned read-tool layer with data-minimization and retention controls.
 
-Current repository scope: this phase has a connected V1 foundation with mock providers, tenant-enforced PostgreSQL schema, audited calculations, persistent transaction/recurring/income/goal workflows, investment analytics, attention/health summaries, scenario tools, and grounded read-only AI.
+Current repository scope: this phase has a connected V1 foundation with demo providers plus a production-shaped Plaid read/sync adapter, tenant-enforced PostgreSQL schema, audited calculations, persistent workflows, investment analytics, attention/health summaries, scenario tools, and grounded read-only AI.
 
 Recommended next hardening work:
 
-- Run migration/repository integration tests against disposable PostgreSQL in CI.
 - Add paginated transaction read APIs and database-side dashboard aggregates before large real histories.
-- Add holding and investment-activity import/edit workflows with reconciliation and cost-basis quality states.
+- Add investment reconciliation/data-quality workflows beyond the implemented read-only holding/activity import.
 - Add goal editing/deletion with explicit unlink rules and complete focus-trapped dialogs.
-- Add passkeys/MFA, recovery, session/device management, distributed limits, privacy export/deletion, and production observability.
-- Add a durable provider-sync queue and idempotent normalization/reconciliation pipeline before any real connection.
+- Add passkeys/MFA, recovery, session/device management, shared limits, privacy export/deletion, and production observability.
+- Move provider-token key management to KMS envelope encryption and complete provider production/vendor review.
 
 ## Phase 2: Real Bank And Brokerage Connections
 
-- Add regulated data-aggregation partners behind `FinancialDataProvider`.
-- Add licensed market data and read-only brokerage sync behind `MarketDataProvider` and `BrokerageDataProvider`.
-- Implement verified webhooks, background synchronization, consent lifecycle, reconnect flows, deduplication, reconciliation, and provider health.
+- Plaid is implemented behind FinancialDataProvider for Link, accounts, cursor transactions, verified webhooks, health, reconnect, refresh, revocation, and read-only investments.
+- PostgreSQL SyncJob/SyncRun provide durable deduplication, leases, bounded retries, cursor rollback, and audit-safe operating metadata.
+- Add production credentials/approval, KMS key management, provider operations, privacy workflows, and support readiness before live users.
+- Add a licensed centralized market-data adapter only when institution prices are insufficient and entitlements are understood.
 - Preserve clear freshness labels and never describe delayed quotes as live.
 
-This phase requires vendor contracts, privacy review, data-security assessment, operational support, and compliance analysis.
+Current status: sandbox/fixture-ready engineering foundation, not production authorization. Live launch requires vendor contracts/approval, privacy review, data-security assessment, incident/support operations, monitoring, and compliance analysis.
 
 ## Phase 3: Approved Financial Actions
 

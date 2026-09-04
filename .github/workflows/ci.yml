@@ -43,7 +43,16 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Audit production dependency tree
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          for attempt in 1 2 3; do
+            if npm audit --omit=dev --audit-level=high; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
       - run: npm run db:generate
       - name: Create upgrade database
         env:

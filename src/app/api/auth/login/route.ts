@@ -3,7 +3,7 @@ import { authenticateCredentials, createSession } from "@/auth/auth-service";
 import { setSessionCookie } from "@/auth/cookies";
 import { loginSchema } from "@/lib/validation";
 import {
-  rateLimit,
+  rateLimitDistributed,
   readJsonBody,
   requestIdentifier,
   requireSameOrigin,
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
 
-  const limit = rateLimit("login", requestIdentifier(request), 8, 15 * 60 * 1000);
+  const limit = await rateLimitDistributed("login", requestIdentifier(request), 8, 15 * 60 * 1000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many sign-in attempts. Try again later." },

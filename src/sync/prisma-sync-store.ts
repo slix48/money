@@ -4,8 +4,7 @@ import { normalizeMerchant, detectRecurringTransactions } from "@/domain/calcula
 import type { CategoryName, TransactionRecord } from "@/domain/types";
 import { NotFoundError } from "@/data/errors";
 import { prisma } from "@/lib/db";
-import { env } from "@/lib/env";
-import { decryptProviderToken } from "@/lib/provider-token-crypto";
+import { decryptProviderAccessToken } from "@/sync/provider-token-service";
 import type {
   SyncCommitInput,
   SyncCommitResult,
@@ -79,22 +78,22 @@ export class PrismaSyncStore implements SyncStore {
         provider: true,
         institutionName: true,
         accessTokenEncrypted: true,
+        tokenKeyVersion: true,
         syncCursor: true,
       },
     });
     if (!connection?.accessTokenEncrypted) throw new NotFoundError("Connection not found");
-    if (!env.PROVIDER_TOKEN_ENCRYPTION_KEY) {
-      throw new Error("Provider token encryption is not configured");
-    }
     return {
       id: connection.id,
       userId: connection.userId,
       provider: connection.provider,
       institutionName: connection.institutionName,
-      accessToken: decryptProviderToken(
-        connection.accessTokenEncrypted,
-        env.PROVIDER_TOKEN_ENCRYPTION_KEY,
-      ),
+      accessToken: await decryptProviderAccessToken({
+        userId,
+        connectionId: connection.id,
+        ciphertext: connection.accessTokenEncrypted,
+        keyVersion: connection.tokenKeyVersion,
+      }),
       cursor: connection.syncCursor ?? undefined,
     };
   }

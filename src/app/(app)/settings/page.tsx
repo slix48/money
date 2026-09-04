@@ -4,6 +4,7 @@ import {
   Ban,
   CheckCircle2,
   Database,
+  FileDown,
   KeyRound,
   Landmark,
   LineChart,
@@ -15,6 +16,7 @@ import {
 import { requireUser } from "@/auth/dal";
 import { PageHeader } from "@/components/ui/page-header";
 import { ConnectedAccounts } from "@/components/settings/connected-accounts";
+import { PrivacyControls } from "@/components/settings/privacy-controls";
 import { getFinancialRepository } from "@/data/get-repository";
 import { calculateNetWorth } from "@/domain/calculations";
 import { formatCurrency, titleCase } from "@/lib/format";
@@ -68,6 +70,11 @@ export default async function SettingsPage() {
           <article className="panel provider-card"><span className="provider-icon blue"><LineChart size={17} /></span><div><strong>Market data</strong><p>Development price set</p></div><span className="badge badge-demo">Demo prices</span><small>MockMarketDataProvider</small></article>
           <article className="panel provider-card"><span className="provider-icon attention"><Ban size={17} /></span><div><strong>Financial actions</strong><p>Transfers, trades, cancellation</p></div><span className="badge">Unavailable in V1</span><small>V1ActionsUnavailable</small></article>
         </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-label"><FileDown size={16} /><div><h2>Data and privacy</h2><p>Export data and manage sessions</p></div></div>
+        <PrivacyControls demoMode={env.demoMode} />
       </section>
 
       <section className="settings-section">

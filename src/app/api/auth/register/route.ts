@@ -5,7 +5,7 @@ import { hashPassword } from "@/auth/password";
 import { DEFAULT_CATEGORIES } from "@/domain/demo-data";
 import { env } from "@/lib/env";
 import {
-  rateLimit,
+  rateLimitDistributed,
   readJsonBody,
   requestIdentifier,
   requireSameOrigin,
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   if (env.demoMode) {
     return NextResponse.json({ error: "Registration is disabled in demo mode." }, { status: 403 });
   }
-  const limit = rateLimit("registration", requestIdentifier(request), 4, 60 * 60 * 1000);
+  const limit = await rateLimitDistributed("registration", requestIdentifier(request), 4, 60 * 60 * 1000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many registration attempts. Try again later." },

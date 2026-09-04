@@ -156,8 +156,49 @@ export async function processNextSyncJob(jobId?: string): Promise<boolean> {
   return true;
 }
 
-export async function processSyncQueue(limit = 3): Promise<number> {
+export interface SyncQueueProcessOptions {
+  limit?: number;
+  maxDurationMs?: number;
+}
+
+export async function processSyncQueue(
+  options: number | SyncQueueProcessOptions = {},
+): Promise<number> {
+  const limit = typeof options === "number" ? options : options.limit ?? 3;
+  const maxDurationMs = typeof options === "number"
+    ? 20_000
+    : options.maxDurationMs ?? 20_000;
+  const startedAt = Date.now();
   let processed = 0;
-  while (processed < limit && await processNextSyncJob()) processed += 1;
+  while (
+    processed < Math.max(0, Math.min(limit, 20)) &&
+    Date.now() - startedAt < Math.max(1_000, Math.min(maxDurationMs, 50_000)) &&
+    await processNextSyncJob()
+  ) {
+    processed += 1;
+  }
   return processed;
+}
+
+export async function getSyncQueueHealth(now = new Date()) {
+  const [queued, processing, failed, staleLeases, oldestQueued] = await Promise.all([
+    prisma.syncJob.count({ where: { status: "QUEUED" } }),
+    prisma.syncJob.count({ where: { status: "PROCESSING" } }),
+    prisma.syncJob.count({ where: { status: "FAILED" } }),
+    prisma.syncJob.count({
+      where: { status: "PROCESSING", leaseExpiresAt: { lt: now } },
+    }),
+    prisma.syncJob.findFirst({
+      where: { status: "QUEUED" },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true },
+    }),
+  ]);
+  return {
+    queued,
+    processing,
+    failed,
+    staleLeases,
+    oldestQueuedAt: oldestQueued?.createdAt ?? null,
+  };
 }

@@ -120,4 +120,87 @@ describe("environment parsing", () => {
     expect(parsed.plaidConfigured).toBe(true);
     expect(parsed.PLAID_ENV).toBe("sandbox");
   });
+
+  it("accepts a versioned provider-token key ring", () => {
+    const parsed = parseEnvironment({
+      NODE_ENV: "development",
+      DEMO_MODE: "true",
+      PLAID_CLIENT_ID: "client-id",
+      PLAID_SECRET: "secret",
+      PROVIDER_TOKEN_ENCRYPTION_KEYS: JSON.stringify({
+        1: Buffer.alloc(32, 1).toString("base64"),
+        2: Buffer.alloc(32, 2).toString("base64"),
+      }),
+      PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION: "2",
+    });
+
+    expect(parsed.providerTokenKeyring?.currentVersion).toBe(2);
+    expect(parsed.providerTokenKeyring?.keys[1]).toBeTruthy();
+  });
+
+  it("rejects a missing current key version", () => {
+    expect(() => parseEnvironment({
+      NODE_ENV: "development",
+      DEMO_MODE: "true",
+      PROVIDER_TOKEN_ENCRYPTION_KEYS: JSON.stringify({
+        1: Buffer.alloc(32, 1).toString("base64"),
+      }),
+      PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION: "2",
+    })).toThrow("must identify a key present");
+  });
+
+  it("rejects non-PostgreSQL database URLs in connected mode", () => {
+    expect(() => parseEnvironment({
+      NODE_ENV: "development",
+      DEMO_MODE: "false",
+      DATABASE_URL: "https://db.example.com/moneyos",
+    })).toThrow("valid PostgreSQL URL");
+  });
+
+  it("requires HTTPS for connected production origins", () => {
+    expect(() => parseEnvironment({
+      NODE_ENV: "production",
+      DEMO_MODE: "false",
+      DATABASE_URL: "postgresql://moneyos:secret@db.example.com/moneyos",
+      SESSION_SECRET: "a-production-session-secret-with-adequate-length",
+      APP_URL: "http://money.example.com",
+    })).toThrow("must use HTTPS");
+  });
+
+  it("accepts a complete production Plaid and rotation configuration", () => {
+    const parsed = parseEnvironment({
+      NODE_ENV: "production",
+      DEMO_MODE: "false",
+      DATABASE_URL: "postgresql://moneyos:secret@db.example.com/moneyos",
+      SESSION_SECRET: "a-production-session-secret-with-adequate-length",
+      APP_URL: "https://money.example.com",
+      PLAID_CLIENT_ID: "client-id",
+      PLAID_SECRET: "secret",
+      PLAID_ENV: "production",
+      PLAID_WEBHOOK_URL: "https://money.example.com/api/providers/plaid/webhook",
+      PLAID_REDIRECT_URI: "https://money.example.com/settings",
+      PROVIDER_TOKEN_ENCRYPTION_KEYS: JSON.stringify({
+        1: Buffer.alloc(32, 1).toString("base64"),
+      }),
+      PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION: "1",
+      CRON_SECRET: "a-production-cron-secret-with-adequate-length",
+    });
+
+    expect(parsed.plaidConfigured).toBe(true);
+    expect(parsed.providerTokenKeyring?.currentVersion).toBe(1);
+  });
+
+  it("rejects insecure production Plaid callback endpoints", () => {
+    expect(() => parseEnvironment({
+      NODE_ENV: "production",
+      DEMO_MODE: "true",
+      PLAID_CLIENT_ID: "client-id",
+      PLAID_SECRET: "secret",
+      PLAID_ENV: "production",
+      PLAID_WEBHOOK_URL: "http://money.example.com/api/providers/plaid/webhook",
+      PLAID_REDIRECT_URI: "https://money.example.com/settings",
+      PROVIDER_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+      CRON_SECRET: "a-production-cron-secret-with-adequate-length",
+    })).toThrow("PLAID_WEBHOOK_URL must be a valid HTTPS URL");
+  });
 });

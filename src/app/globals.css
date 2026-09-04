@@ -1095,6 +1095,13 @@ textarea:focus-visible {
 .security-grid > div:last-child { border-right: 0; }
 .security-grid strong { display: block; margin-top: 11px; color: var(--text); font-size: 10px; }
 .security-grid p { margin: 4px 0 0; color: var(--text-tertiary); font-size: 8px; line-height: 1.5; }
+.privacy-controls { display: grid; position: relative; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0; }
+.privacy-controls > div { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 7px; padding: 17px; border-right: 1px solid var(--border); }
+.privacy-controls > div:nth-child(2) { border-right: 0; }
+.privacy-controls strong { color: var(--text); font-size: 10px; }
+.privacy-controls p { max-width: 48ch; margin: 0; color: var(--text-tertiary); font-size: 8px; line-height: 1.5; }
+.privacy-controls .button { min-height: 30px; margin-top: auto; padding-inline: 9px; font-size: 10px; }
+.privacy-controls .privacy-message { grid-column: 1 / -1; width: 100%; margin: 0; border-top: 1px solid var(--border); border-right: 0; }
 
 @media (max-width: 1120px) {
   .ai-layout { grid-template-columns: minmax(0, 1fr); }
@@ -1744,6 +1751,9 @@ textarea:focus-visible {
   .security-grid { grid-template-columns: minmax(0, 1fr); }
   .security-grid > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .security-grid > div:last-child { border-bottom: 0; }
+  .privacy-controls { grid-template-columns: minmax(0, 1fr); }
+  .privacy-controls > div { border-right: 0; border-bottom: 1px solid var(--border); }
+  .privacy-controls > div:nth-child(2) { border-bottom: 0; }
   .settings-accounts th:nth-child(2),
   .settings-accounts td:nth-child(2),
   .settings-accounts th:nth-child(3),

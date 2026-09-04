@@ -21,12 +21,13 @@ MoneyOS handles sensitive financial metadata. These are implemented controls and
 - Sessions have an absolute seven-day expiry and periodically update last-seen time.
 - Cookies are HttpOnly, SameSite=Lax, path-scoped to the application, high priority, and Secure in production.
 - Session responses use Cache-Control: no-store.
-- Login and registration are origin checked and rate limited.
+- Login and registration are origin checked and use atomic PostgreSQL limits in connected mode.
+- Users can revoke all server-side sessions; the initiating browser cookie is cleared immediately.
 - Demo mode uses a signed HMAC token for a public mock identity. Public demo credentials and data are not a confidentiality boundary.
 
 proxy.ts only redirects requests with no cookie. Pages and APIs validate the session in the server-only DAL.
 
-Remaining launch work: passkeys/MFA, email verification, secure recovery, session/device inventory, revoke-all, reauthentication for sensitive settings, credential-stuffing defense, and breached-password controls.
+Remaining launch work: passkeys/MFA, email verification, secure recovery, session/device inventory, reauthentication for sensitive settings, credential-stuffing defense, and breached-password controls.
 
 ## Authorization And Tenant Isolation
 
@@ -54,23 +55,23 @@ Before public production, use a least-privilege application role and evaluate Po
 - Security headers disable framing, MIME sniffing, sensitive referrers/capabilities, and cross-origin embedding.
 - Production adds HSTS and a compatible CSP baseline.
 
-The current CSP permits inline framework scripts/styles. Replace it with deployment-specific nonces or hashes after validating Next.js streaming and third-party integrations. Process-local rate limiting must move to Redis or another shared atomic limiter before multi-instance production. Only trust forwarding headers from the configured edge proxy.
+The current CSP permits inline framework scripts/styles. Replace it with deployment-specific nonces or hashes after validating Next.js streaming and third-party integrations. Connected mode stores hashed fixed-window counters in PostgreSQL so concurrent Vercel instances share limits without Redis; the scheduled drain removes expired counters. Demo mode intentionally retains local counters because it has no database or confidential tenant data. Only trust forwarding headers from the configured edge proxy.
 
 ## Connected-Data Security
 
 - Plaid client credentials and access tokens are server-only. Link returns a short-lived Link token; the browser sends a public token to a same-origin authenticated exchange route and never receives the resulting access token.
-- Stored provider tokens use versioned AES-256-GCM authenticated encryption with a random nonce and a required 32-byte key.
+- Stored provider tokens use versioned AES-256-GCM authenticated encryption with a random nonce and 32-byte keys. A retained key ring decrypts old versions; normal token use rotates old ciphertext to the configured current version with a tenant-scoped compare-and-swap.
 - Connection, refresh, reconnect, and disconnect lookups use both session-derived userId and connection ID. Foreign IDs return the same not-found response as missing IDs.
 - Provider accounts and transactions use same-tenant composite foreign keys. The database rejects cross-user connection/account relationships even if application validation fails.
 - Plaid webhooks are bounded, validated, and verified using the provider JWT public key and exact body hash. Stale/future signatures and altered bodies fail closed.
 - Verified webhook IDs become unique queue dedupe keys. Cursor commits, account changes, and transaction changes are atomic; failed runs retain the old cursor.
 - Sync jobs use leases and bounded retry. Safe failure categories reach the UI, not provider responses or raw error bodies.
-- Manual refresh has process rate limits plus a durable per-connection time-window dedupe key.
+- Manual refresh has a shared PostgreSQL rate limit plus a durable per-connection time-window dedupe key.
 - Disconnect calls provider revocation first. Credentials are cleared only after confirmation; history is preserved and marked stale/disconnected.
 
 The webhook endpoint is intentionally exempt from browser CSRF checks because provider signatures authenticate it. All user-controlled connection mutations still require canonical same-origin validation.
 
-Remaining provider launch work: managed KMS envelope encryption and rotation, webhook/revocation incident runbooks, shared abuse controls, verified production domains, least-privilege database/provider roles, provider vendor review, and privacy/retention operations.
+Remaining provider launch work: managed KMS envelope key generation/decryption, webhook/revocation incident exercises, verified production domains, least-privilege database/provider roles, provider vendor review, and privacy/retention operations.
 
 ## AI Security
 
@@ -113,12 +114,14 @@ Implemented:
 - hashed passwords and session tokens
 - safe audit metadata containing changed field names rather than balances/descriptions
 - no intentional financial-payload logging
+- an authenticated JSON data export with explicit field allowlists that exclude password hashes, sessions, tokens, cursors, provider Item IDs, and provider transaction IDs
+- user-controlled revocation of all server-side sessions
 
 Infrastructure must provide TLS, encrypted disks/databases/backups, managed secrets, rotation, restore testing, retention, and access audit logs.
 
 The current application token-encryption key must move to managed KMS envelope encryption before material production use. Future field/application encryption should also cover account/routing identifiers, tax/identity data, any raw provider payloads deliberately retained for reconciliation, and other high-impact identifiers. Use per-purpose keys, versioned ciphertext, rotation, and tightly scoped decrypt permissions. Passwords remain one-way hashes, not encrypted values. Searchable financial fields need a deliberate tokenization/index strategy rather than ad hoc deterministic encryption.
 
-Before connecting real data, implement privacy notices, consent records, data inventory, purpose/retention limits, user export/deletion, provider revocation, backup deletion policy, support access controls, and vendor data-processing terms.
+Before connecting real data, complete privacy notices, consent records, the data inventory, purpose/retention limits, user deletion, backup deletion policy, support access controls, and vendor data-processing terms. Immediate JSON export is implemented for early histories; move it to paginated/asynchronous generation before histories can exceed serverless response limits.
 
 ## Auditability And Logging
 
@@ -128,18 +131,22 @@ Before action execution, define an immutable event taxonomy, event integrity/ret
 
 ## Verification
 
-The automated suite covers passwords, session/token integrity, provider-token encryption/tamper detection, signed webhook validation, environment fail-closed behavior, canonical origin and JSON controls, route/repository/provider IDOR boundaries, database tenant constraints, sync idempotency/cursor rollback, pending-posted/removal lifecycles, reconciliation, disconnect preservation, accounting rules, investments, insights, and grounded AI tools. CI applies migrations to real PostgreSQL from zero and from the prior migration state.
+The automated suite covers passwords, session/token integrity/revoke-all, provider-token encryption/tamper/rotation, credential-free privacy export, signed webhook validation, environment fail-closed behavior, canonical origin and JSON controls, distributed limits, route/repository/provider IDOR boundaries, database tenant constraints, sync idempotency/cursor rollback, pending-posted/removal lifecycles, reconciliation, disconnect preservation, accounting rules, investments, insights, and grounded AI tools. CI applies migrations to real PostgreSQL from zero and from the prior migration state.
+
+Prisma 7.10.0 pins mysql2 for its multi-database CLI even though MoneyOS uses only PostgreSQL. package.json overrides that unused adapter dependency to the patched 3.24.3 release; migration, generation, test, and build checks guard compatibility until Prisma updates its pin.
+
+CI rejects known high-severity production dependency advisories. Dependabot checks npm and GitHub Actions weekly with grouped minor/patch updates to limit review noise; dependency updates still require the complete CI gate.
 
 ## Production Checklist
 
 - Independent threat model, application security review, and penetration test
-- MFA/passkeys, recovery, session management, and abuse controls
-- Distributed request limits, queue monitoring/alerting, and on-call procedures
+- MFA/passkeys, recovery, session inventory, reauthentication, and breached-password controls
+- Queue alerting, on-call procedures, and periodic limiter-table capacity review
 - Managed KMS envelope encryption, key rotation, and provider-token recovery tests
 - Nonce/hash CSP, dependency/SAST/secret/container/IaC scanning in CI
 - Database least privilege and validated row-level security
 - Managed secrets, encryption/key rotation, encrypted backups, and restore exercises
-- Data export/deletion, consent/retention controls, privacy/legal review
+- Data deletion, consent/retention controls, scalable export generation, and privacy/legal review
 - Vendor due diligence and applicable regulatory/compliance/partner approval
 - Action-specific threat model, policy, step-up, audit, reconciliation, and support before enabling any action
 

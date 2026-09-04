@@ -18,3 +18,10 @@ export class ValidationError extends Error {
     this.name = "ValidationError";
   }
 }
+
+export class ExportCapacityError extends Error {
+  constructor(message = "Background data export required") {
+    super(message);
+    this.name = "ExportCapacityError";
+  }
+}

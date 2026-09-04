@@ -9,15 +9,15 @@ The roadmap preserves a strict separation between financial intelligence and reg
 - Add production observability, accessibility, privacy controls, exports, account recovery, MFA/passkeys, and distributed security controls.
 - Integrate an external model only through the permissioned read-tool layer with data-minimization and retention controls.
 
-Current repository scope: this phase has a connected V1 foundation with demo providers plus a production-shaped Plaid read/sync adapter, tenant-enforced PostgreSQL schema, audited calculations, persistent workflows, investment analytics, attention/health summaries, scenario tools, and grounded read-only AI.
+Current repository scope: this phase has a connected V1 foundation with demo providers plus a production-shaped Plaid read/sync adapter, tenant-enforced PostgreSQL schema, audited calculations, shared abuse controls, token-key rotation, data export/session revocation, persistent workflows, investment analytics, attention/health summaries, scenario tools, and grounded read-only AI.
 
 Recommended next hardening work:
 
 - Add paginated transaction read APIs and database-side dashboard aggregates before large real histories.
 - Add investment reconciliation/data-quality workflows beyond the implemented read-only holding/activity import.
 - Add goal editing/deletion with explicit unlink rules and complete focus-trapped dialogs.
-- Add passkeys/MFA, recovery, session/device management, shared limits, privacy export/deletion, and production observability.
-- Move provider-token key management to KMS envelope encryption and complete provider production/vendor review.
+- Add passkeys/MFA, recovery, session/device inventory, privacy deletion/retention/consent, and production alerting.
+- Move the versioned provider-token keys to KMS envelope encryption and complete provider production/vendor review.
 
 ## Phase 2: Real Bank And Brokerage Connections
 

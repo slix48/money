@@ -4,7 +4,7 @@ import { createFinancialToolContext } from "@/ai/tool-registry";
 import { getCurrentUser } from "@/auth/dal";
 import { getFinancialRepository } from "@/data/get-repository";
 import {
-  rateLimit,
+  rateLimitDistributed,
   readJsonBody,
   requireSameOrigin,
   safeApiError,
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   if (originError) return originError;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  const limit = rateLimit("ai-query", user.id, 20, 60 * 1000);
+  const limit = await rateLimitDistributed("ai-query", user.id, 20, 60 * 1000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Query limit reached. Try again shortly." },

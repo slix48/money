@@ -13,6 +13,8 @@ const rawEnvironmentSchema = z.object({
   PLAID_WEBHOOK_URL: z.string().optional(),
   PLAID_REDIRECT_URI: z.string().optional(),
   PROVIDER_TOKEN_ENCRYPTION_KEY: z.string().optional(),
+  PROVIDER_TOKEN_ENCRYPTION_KEYS: z.string().optional(),
+  PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION: z.string().optional(),
   CRON_SECRET: z.string().optional(),
 });
 
@@ -40,6 +42,99 @@ function isEncryptionKey(value: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function parseProviderTokenKeyring(input: {
+  legacyKey?: string;
+  serializedKeys?: string;
+  currentVersion?: string;
+}) {
+  const legacyKey = normalized(input.legacyKey);
+  const serializedKeys = normalized(input.serializedKeys);
+  const currentVersionValue = normalized(input.currentVersion);
+  if (legacyKey && (serializedKeys || currentVersionValue)) {
+    configurationError(
+      "PROVIDER_TOKEN_ENCRYPTION_KEYS",
+      "cannot be combined with the legacy PROVIDER_TOKEN_ENCRYPTION_KEY",
+    );
+  }
+  if (legacyKey) {
+    if (!isEncryptionKey(legacyKey)) {
+      configurationError(
+        "PROVIDER_TOKEN_ENCRYPTION_KEY",
+        "must decode to exactly 32 bytes (base64) or be 64 hexadecimal characters",
+      );
+    }
+    return { currentVersion: 1, keys: { 1: legacyKey } } as const;
+  }
+  if (!serializedKeys && !currentVersionValue) return undefined;
+  if (!serializedKeys || !currentVersionValue) {
+    configurationError(
+      "PROVIDER_TOKEN_ENCRYPTION_KEYS",
+      "and PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION must both be configured",
+    );
+  }
+  const currentVersion = Number(currentVersionValue);
+  if (!Number.isSafeInteger(currentVersion) || currentVersion < 1) {
+    configurationError(
+      "PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION",
+      "must be a positive integer",
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serializedKeys);
+  } catch {
+    configurationError(
+      "PROVIDER_TOKEN_ENCRYPTION_KEYS",
+      "must be a JSON object mapping positive integer versions to keys",
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    configurationError(
+      "PROVIDER_TOKEN_ENCRYPTION_KEYS",
+      "must be a JSON object mapping positive integer versions to keys",
+    );
+  }
+  const keys: Record<number, string> = {};
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > 10) {
+    configurationError(
+      "PROVIDER_TOKEN_ENCRYPTION_KEYS",
+      "must contain between 1 and 10 key versions",
+    );
+  }
+  for (const [versionValue, keyValue] of entries) {
+    const version = Number(versionValue);
+    if (
+      !Number.isSafeInteger(version) ||
+      version < 1 ||
+      typeof keyValue !== "string" ||
+      !isEncryptionKey(keyValue)
+    ) {
+      configurationError(
+        "PROVIDER_TOKEN_ENCRYPTION_KEYS",
+        "must map positive integer versions to exactly 32-byte keys",
+      );
+    }
+    keys[version] = keyValue;
+  }
+  if (!keys[currentVersion]) {
+    configurationError(
+      "PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION",
+      "must identify a key present in PROVIDER_TOKEN_ENCRYPTION_KEYS",
+    );
+  }
+  return { currentVersion, keys };
+}
+
+function isPostgreSqlUrl(value: string): boolean {
+  const protocol = new URL(value).protocol;
+  return protocol === "postgresql:" || protocol === "postgres:";
+}
+
+function isHttpsUrl(value: string): boolean {
+  return new URL(value).protocol === "https:";
 }
 
 export function parseEnvironment(input: NodeJS.ProcessEnv) {
@@ -72,10 +167,15 @@ export function parseEnvironment(input: NodeJS.ProcessEnv) {
   const providerTokenEncryptionKey = normalized(
     raw.data.PROVIDER_TOKEN_ENCRYPTION_KEY,
   );
+  const providerTokenKeyring = parseProviderTokenKeyring({
+    legacyKey: providerTokenEncryptionKey,
+    serializedKeys: raw.data.PROVIDER_TOKEN_ENCRYPTION_KEYS,
+    currentVersion: raw.data.PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION,
+  });
+  const cronSecret = normalized(raw.data.CRON_SECRET);
   const plaidWasConfigured = Boolean(
     plaidClientId ||
       plaidSecret ||
-      normalized(raw.data.PLAID_ENV) ||
       normalized(raw.data.PLAID_WEBHOOK_URL) ||
       normalized(raw.data.PLAID_REDIRECT_URI),
   );
@@ -98,16 +198,40 @@ export function parseEnvironment(input: NodeJS.ProcessEnv) {
     ) {
       configurationError("PLAID_REDIRECT_URI", "must be a valid URL");
     }
-    if (!isEncryptionKey(providerTokenEncryptionKey)) {
+    if (!providerTokenKeyring) {
       configurationError(
-        "PROVIDER_TOKEN_ENCRYPTION_KEY",
-        "must decode to exactly 32 bytes (base64) or be 64 hexadecimal characters",
+        "PROVIDER_TOKEN_ENCRYPTION_KEYS",
+        "or legacy PROVIDER_TOKEN_ENCRYPTION_KEY is required for Plaid",
       );
+    }
+    if (plaidEnvironment.data === "production") {
+      if (!plaidWebhookUrl.success || !isHttpsUrl(plaidWebhookUrl.data)) {
+        configurationError(
+          "PLAID_WEBHOOK_URL",
+          "must be a valid HTTPS URL for the Plaid production environment",
+        );
+      }
+      if (!plaidRedirectUri.success || !isHttpsUrl(plaidRedirectUri.data)) {
+        configurationError(
+          "PLAID_REDIRECT_URI",
+          "must be a valid HTTPS URL for the Plaid production environment",
+        );
+      }
+      if (!cronSecret || cronSecret.length < 32) {
+        configurationError(
+          "CRON_SECRET",
+          "must contain at least 32 characters for production provider sync",
+        );
+      }
     }
   }
 
+  if (cronSecret && cronSecret.length < 32) {
+    configurationError("CRON_SECRET", "must contain at least 32 characters");
+  }
+
   if (!demoMode) {
-    if (!databaseUrl.success) {
+    if (!databaseUrl.success || !isPostgreSqlUrl(databaseUrl.data)) {
       configurationError("DATABASE_URL", "must be a valid PostgreSQL URL when DEMO_MODE=false");
     }
     if (normalized(raw.data.APP_URL) && !appUrl.success) {
@@ -129,6 +253,18 @@ export function parseEnvironment(input: NodeJS.ProcessEnv) {
         "is required in production when DEMO_MODE=false",
       );
     }
+    const productionAppUrl = appUrl.success
+      ? appUrl.data
+      : vercelAppUrl.success
+        ? vercelAppUrl.data
+        : undefined;
+    if (
+      raw.data.NODE_ENV === "production" &&
+      productionAppUrl &&
+      !isHttpsUrl(productionAppUrl)
+    ) {
+      configurationError("APP_URL", "must use HTTPS in production");
+    }
   }
 
   return {
@@ -149,9 +285,10 @@ export function parseEnvironment(input: NodeJS.ProcessEnv) {
     PLAID_WEBHOOK_URL: plaidWebhookUrl.success ? plaidWebhookUrl.data : undefined,
     PLAID_REDIRECT_URI: plaidRedirectUri.success ? plaidRedirectUri.data : undefined,
     PROVIDER_TOKEN_ENCRYPTION_KEY: providerTokenEncryptionKey,
-    CRON_SECRET: normalized(raw.data.CRON_SECRET),
+    providerTokenKeyring,
+    CRON_SECRET: cronSecret,
     plaidConfigured:
-      Boolean(plaidClientId && plaidSecret) && isEncryptionKey(providerTokenEncryptionKey),
+      Boolean(plaidClientId && plaidSecret && providerTokenKeyring),
   };
 }
 

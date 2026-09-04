@@ -703,3 +703,13 @@ model UsageMetric {
   @@index([day, category])
   @@index([userId, day(sort: Desc)])
 }
+
+model RateLimitBucket {
+  keyHash   String   @id @db.VarChar(64)
+  count     Int      @default(1)
+  resetAt   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+}

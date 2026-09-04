@@ -21,7 +21,6 @@ Sources: [Vercel pricing](https://vercel.com/pricing), [Plaid billing](https://p
 | --- | --- | --- | --- | --- |
 | External AI provider | Natural-language planning and wording | Deterministic planner no longer meets measured answer-quality needs | Input/output tokens, cached tokens, tool calls | Route simple questions to cheaper models; send only compact tool results; hard per-user budgets; deterministic fallback |
 | Market-data provider | Prices, security metadata, historical series | Plaid/institution values are insufficient and licensing is approved | Symbols, requests, delayed/real-time entitlements, redistribution | Batch symbols, central cache, delayed/end-of-day MVP, never fetch once per component |
-| Shared rate limiter | Multi-instance abuse protection | Process-local limits no longer cover the deployment topology | Requests/storage/operations | PostgreSQL advisory/row-based limits first if load permits; managed Redis/KV only with demonstrated need |
 | Dedicated job worker/queue | Longer or higher-volume synchronization | Serverless after-processing plus scheduled database queue drains miss latency/SLO targets | Runtime, operations, retained jobs | Keep the SyncJob contract; replace only the processor, not domain sync |
 | KMS/HSM | Provider-token envelope key protection and rotation | Before production handling at material scale | Key versions, encrypt/decrypt operations | Cloud KMS/envelope encryption; cache only short-lived data keys server-side |
 | Transactional email | Verification, recovery, security alerts | Identity flows require it | Messages/contacts | Send only necessary events; suppress duplicates; no financial details in email |
@@ -35,6 +34,7 @@ Billing is explicitly out of scope in this run. A future hosted checkout provide
 - Dashboards read synchronized PostgreSQL records. Opening a page never calls Plaid.
 - Verified provider webhooks enqueue cursor-based incremental sync.
 - Manual refresh is tenant-checked, rate-limited, and deduplicated in PostgreSQL.
+- Connected-mode abuse limits use small hashed PostgreSQL rows shared across instances; the queue drain prunes expired rows, avoiding Redis/KV spend.
 - Sync pagination is bounded and cursor advancement is atomic.
 - Provider call counts, sync durations, and changed-record counts are stored without financial payloads.
 - Investment holdings/activity are fetched centrally and persisted once per sync, not per UI component.
@@ -93,7 +93,7 @@ The largest variable is usually active connected Items, not page views.
 - Keep the same logical architecture.
 - Size PostgreSQL from measured query latency, active connections, storage, and backup needs.
 - Add database-side dashboard aggregates only for queries proven expensive.
-- Evaluate a shared rate limiter if requests span concurrent instances.
+- Review PostgreSQL rate-bucket write volume and cleanup; add managed KV only if measured database load justifies another service.
 - Run the queue drain often enough for provider webhook latency goals; add a small worker only if serverless execution proves unreliable.
 - Negotiate provider pricing only when measured Item volume makes a commitment cheaper than pay-as-you-go.
 - External AI remains optional. Introduce it behind budgets and model routing, not as a calculator.

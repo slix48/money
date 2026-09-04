@@ -7,6 +7,12 @@ interface RateBucket {
   resetAt: number;
 }
 
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  retryAfterSeconds: number;
+}
+
 const globalForRateLimit = globalThis as typeof globalThis & {
   moneyOsRateBuckets?: Map<string, RateBucket>;
 };
@@ -20,7 +26,7 @@ export function rateLimit(
   limit: number,
   windowMs: number,
   now = Date.now(),
-): { allowed: boolean; remaining: number; retryAfterSeconds: number } {
+): RateLimitResult {
   const safeKey = createHash("sha256")
     .update(`${namespace}:${identifier}`)
     .digest("hex");
@@ -36,6 +42,51 @@ export function rateLimit(
     remaining: Math.max(0, limit - bucket.count),
     retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
   };
+}
+
+export async function rateLimitDistributed(
+  namespace: string,
+  identifier: string,
+  limit: number,
+  windowMs: number,
+  now = Date.now(),
+): Promise<RateLimitResult> {
+  if (env.demoMode) return rateLimit(namespace, identifier, limit, windowMs, now);
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const resetAt = new Date(windowStart + windowMs);
+  const keyHash = createHash("sha256")
+    .update(`${namespace}:${identifier}:${windowStart}`)
+    .digest("hex");
+  const { prisma } = await import("@/lib/db");
+  const bucket = await prisma.rateLimitBucket.upsert({
+    where: { keyHash },
+    create: { keyHash, count: 1, resetAt },
+    update: { count: { increment: 1 } },
+    select: { count: true, resetAt: true },
+  });
+  if (keyHash.startsWith("00")) {
+    await prisma.rateLimitBucket.deleteMany({
+      where: { resetAt: { lt: new Date(now - 24 * 60 * 60 * 1_000) } },
+    });
+  }
+  return {
+    allowed: bucket.count <= limit,
+    remaining: Math.max(0, limit - bucket.count),
+    retryAfterSeconds: Math.max(
+      1,
+      Math.ceil((bucket.resetAt.getTime() - now) / 1_000),
+    ),
+  };
+}
+
+export async function pruneExpiredRateLimits(
+  before = new Date(Date.now() - 24 * 60 * 60 * 1_000),
+): Promise<number> {
+  const { prisma } = await import("@/lib/db");
+  const result = await prisma.rateLimitBucket.deleteMany({
+    where: { resetAt: { lt: before } },
+  });
+  return result.count;
 }
 
 export function requestIdentifier(request: Request): string {

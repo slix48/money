@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { getCurrentUser } from "@/auth/dal";
 import { NotFoundError } from "@/data/errors";
-import { rateLimit, requireSameOrigin, safeApiError } from "@/lib/security";
+import { rateLimitDistributed, requireSameOrigin, safeApiError } from "@/lib/security";
 import { entityIdSchema } from "@/lib/validation";
 
 export async function POST(
@@ -12,7 +12,7 @@ export async function POST(
   if (originError) return originError;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  const limit = rateLimit("connection-refresh", user.id, 3, 10 * 60 * 1_000);
+  const limit = await rateLimitDistributed("connection-refresh", user.id, 3, 10 * 60 * 1_000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "This connection was refreshed recently. Try again later." },

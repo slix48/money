@@ -32,7 +32,7 @@ jobs:
       UPGRADE_DATABASE_URL: postgresql://moneyos:moneyos@localhost:5432/moneyos_upgrade?schema=public
       SESSION_SECRET: ci-session-secret-at-least-32-characters
       PROVIDER_TOKEN_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
-      APP_URL: http://localhost:3000
+      APP_URL: https://ci.moneyos.invalid
       DEMO_MODE: "false"
       NODE_ENV: test
       TEST_POSTGRES: "true"
@@ -43,6 +43,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Audit production dependency tree
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run db:generate
       - name: Create upgrade database
         env:
@@ -57,6 +59,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test
+      - name: Verify production environment contract
+        env:
+          NODE_ENV: production
+        run: npm run verify:production-env
       - name: Production build
         env:
           NODE_ENV: production

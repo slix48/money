@@ -18,7 +18,7 @@ V1 is deliberately read-oriented. It does not move money, trade securities, canc
 - Durable PostgreSQL sync jobs, safe retries, synchronization health UI, conservative transfer/card/refund reconciliation, and unavailable-data states
 - Real PostgreSQL migration-from-zero, migration-upgrade, seed, integration, type, lint, unit, and build verification in GitHub Actions
 - PostgreSQL/Prisma plus a provider-backed in-memory demo path with several months of realistic activity
-- Argon2id authentication, hashed opaque production sessions, canonical-origin checks, validation, rate limiting, route/repository IDOR tests, and same-tenant database constraints
+- Argon2id authentication, hashed opaque production sessions, revoke-all, privacy export, canonical-origin checks, shared PostgreSQL rate limits, route/repository IDOR tests, and same-tenant database constraints
 
 ## Quick Start: Demo Mode
 
@@ -83,8 +83,9 @@ PLAID_SECRET="..."
 PLAID_ENV="sandbox"
 PLAID_WEBHOOK_URL="https://your-tunnel-or-deployment/api/providers/plaid/webhook"
 PLAID_REDIRECT_URI="https://your-tunnel-or-deployment/settings"
-PROVIDER_TOKEN_ENCRYPTION_KEY="32-random-bytes-as-base64"
-CRON_SECRET="random-bearer-secret-for-the-queue-drain"
+PROVIDER_TOKEN_ENCRYPTION_KEYS='{"1":"32-random-bytes-as-base64"}'
+PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION="1"
+CRON_SECRET="random-bearer-secret-of-at-least-32-characters"
 ~~~
 
 Plaid access tokens are exchanged, encrypted, and used only on the server. Automated tests use fixtures and never depend on Plaid availability.
@@ -123,14 +124,15 @@ Additional verification commands:
 | --- | --- |
 | npm run db:verify:migrations | Apply all migrations to an empty PostgreSQL database and test the previous-to-current upgrade path; requires DATABASE_URL and UPGRADE_DATABASE_URL |
 | npm run test:postgres | Run tenant, sync, reconciliation, lifecycle, disconnect, and AI integration tests against PostgreSQL |
+| npm run verify:production-env | Fail closed unless the connected production environment contract is valid; prints configuration state, never secret values |
 
 ## Environment Variables
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | When `DEMO_MODE=false` | PostgreSQL connection string; use TLS in production |
+| `DATABASE_URL` | When `DEMO_MODE=false` | PostgreSQL connection string; other URL schemes are rejected; use TLS in production |
 | `SESSION_SECRET` | PostgreSQL production | At least 32 characters; strongly recommended for hosted demo sessions |
-| `APP_URL` | PostgreSQL production | Canonical same-origin URL used by security checks; Vercel deployments also derive it from `VERCEL_URL` |
+| `APP_URL` | PostgreSQL production | Canonical HTTPS origin used by security checks; Vercel deployments also derive it from `VERCEL_URL` |
 | `DEMO_MODE` | No | `true` uses mock providers; `false` uses PostgreSQL |
 
 Only server-side modules read these values. Never expose financial-provider, database, session, or AI credentials through `NEXT_PUBLIC_*` variables.
@@ -142,10 +144,12 @@ Connected-data variables:
 | PLAID_CLIENT_ID | With Plaid | Server-only Plaid client identifier |
 | PLAID_SECRET | With Plaid | Server-only environment secret |
 | PLAID_ENV | With Plaid | sandbox or production |
-| PLAID_WEBHOOK_URL | Recommended | Public signed-webhook endpoint |
-| PLAID_REDIRECT_URI | When OAuth institutions require it | Registered return URI |
-| PROVIDER_TOKEN_ENCRYPTION_KEY | With Plaid | Exactly 32 bytes encoded as base64, or 64 hexadecimal characters |
-| CRON_SECRET | For scheduled queue recovery | Bearer secret for the internal sync-drain route |
+| PLAID_WEBHOOK_URL | Required in Plaid production | Public HTTPS signed-webhook endpoint |
+| PLAID_REDIRECT_URI | Required in Plaid production | Registered HTTPS return URI |
+| PROVIDER_TOKEN_ENCRYPTION_KEY | Legacy Plaid setup | One exactly 32-byte base64/hex key, treated as version 1 |
+| PROVIDER_TOKEN_ENCRYPTION_KEYS | Preferred with Plaid | JSON object of retained version-to-key mappings; do not combine with the legacy variable |
+| PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION | With versioned keys | Positive integer identifying the current encryption key |
+| CRON_SECRET | Plaid production/scheduled recovery | At least 32 characters; protects queue drain and aggregate health routes |
 
 ## Financial Semantics
 
@@ -162,9 +166,10 @@ The assistant does not calculate by improvising prose. It selects an allowlisted
 - [PROVIDERS.md](./PROVIDERS.md): real bank, brokerage, market, model, and action integration requirements
 - [SYNC_ENGINE.md](./SYNC_ENGINE.md): connection lifecycle, token handling, cursors, reconciliation, queue, webhooks, and disconnect behavior
 - [COSTS.md](./COSTS.md): required/optional services, billing drivers, cost controls, and 100/1,000/10,000-user architecture
+- [OPERATIONS.md](./OPERATIONS.md): production validation, deployment, queue, key rotation, privacy, backup, and incident procedures
 - [ROADMAP.md](./ROADMAP.md): phased product and regulatory path
 - [TODO.md](./TODO.md): integrations that require credentials, infrastructure, or regulated partners
 
 ## V1 Limitations
 
-Plaid production access, a production PostgreSQL service, public webhook routing, KMS-backed key management, and privacy/identity hardening still require external setup. Institution-supplied investment values may be delayed and are labeled with source/as-of state. The deterministic assistant is not an investment adviser and does not guarantee outcomes. Request rate limiting is process-local; refresh deduplication and sync jobs are durable in PostgreSQL. See SECURITY.md, SYNC_ENGINE.md, COSTS.md, and TODO.md before production launch.
+Plaid production access, a production PostgreSQL service, public webhook routing, managed KMS envelope keys, deletion/retention automation, MFA/recovery, and operational alerting still require external setup. Institution-supplied investment values may be delayed and are labeled with source/as-of state. The deterministic assistant is not an investment adviser and does not guarantee outcomes. Connected mode uses shared PostgreSQL rate limits and durable refresh/sync deduplication without another infrastructure service. See SECURITY.md, SYNC_ENGINE.md, COSTS.md, OPERATIONS.md, and TODO.md before production launch.

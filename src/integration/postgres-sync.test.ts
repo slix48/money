@@ -253,6 +253,55 @@ describe.runIf(postgresEnabled)("PostgreSQL connected-data integration", () => {
     })).rejects.toThrow();
   });
 
+  it("enforces rate limits atomically across concurrent PostgreSQL callers", async () => {
+    const { rateLimitDistributed } = await import("@/lib/security");
+    const namespace = `postgres-limit-${Date.now()}`;
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        rateLimitDistributed(namespace, "same-identity", 3, 60_000)),
+    );
+    expect(results.filter((result) => result.allowed)).toHaveLength(3);
+    expect(results.filter((result) => !result.allowed)).toHaveLength(3);
+  });
+
+  it("exports no provider credentials and revokes sessions within one tenant", async () => {
+    const { createUserDataExport, revokeAllUserSessions } = await import(
+      "@/privacy/privacy-service"
+    );
+    await Promise.all([
+      prisma.session.create({
+        data: {
+          userId: userA,
+          tokenHash: `session-a-${Date.now()}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      }),
+      prisma.session.create({
+        data: {
+          userId: userB,
+          tokenHash: `session-b-${Date.now()}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      }),
+    ]);
+    const storedConnection = await prisma.financialConnection.findUnique({
+      where: { id: connectionA },
+      select: {
+        accessTokenEncrypted: true,
+        providerItemId: true,
+        syncCursor: true,
+      },
+    });
+    const serialized = JSON.stringify(await createUserDataExport(userA));
+    expect(serialized).not.toContain(storedConnection!.accessTokenEncrypted!);
+    expect(serialized).not.toContain(storedConnection!.providerItemId);
+    expect(serialized).not.toContain(storedConnection!.syncCursor!);
+
+    await expect(revokeAllUserSessions(userB)).resolves.toBe(1);
+    expect(await prisma.session.count({ where: { userId: userA } })).toBe(1);
+    expect(await prisma.session.count({ where: { userId: userB } })).toBe(0);
+  });
+
   it("preserves imported history when a connection is disconnected", async () => {
     const { markConnectionDisconnected } = await import("@/sync/connection-service");
     const countBefore = await prisma.transaction.count({ where: { userId: userA, financialConnectionId: connectionA } });

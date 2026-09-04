@@ -32,14 +32,15 @@ Composite foreign keys prevent cross-tenant connection/account/transaction relat
 
 ## Token Handling
 
-Provider access tokens are encrypted with AES-256-GCM using a 32-byte server-only key. Ciphertext is versioned and includes a random nonce and authentication tag. Tokens:
+Provider access tokens are encrypted with AES-256-GCM using 32-byte server-only keys. Ciphertext includes a format version, random nonce, and authentication tag; FinancialConnection stores the key version separately. Tokens:
 
 - are never returned through APIs
 - are never placed in audit metadata or logs
 - are decrypted only in server-side connection/sync services
 - are cleared after confirmed disconnect or provider revocation
+- are transparently re-encrypted with the current key version when an older retained version is used
 
-PROVIDER_TOKEN_ENCRYPTION_KEY is an application-level early-stage control. Production should move the key hierarchy to managed KMS envelope encryption, restrict decrypt permissions to sync execution, version keys, rotate them, and test recovery. Database encryption at rest alone is not a sufficient long-term token control.
+PROVIDER_TOKEN_ENCRYPTION_KEY remains a version-1 compatibility option. New deployments should configure PROVIDER_TOKEN_ENCRYPTION_KEYS as a JSON version/key map and PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION as the write version. Keep old versions until the protected health endpoint reports zero live connections on them and relevant backups have expired. This remains an application-level early-stage control: production should move key generation/decryption to managed KMS envelope encryption, restrict permissions to sync execution, and test restore/recovery. Database encryption at rest alone is insufficient.
 
 ## Initial And Incremental Sync
 
@@ -101,7 +102,7 @@ The early-stage durable queue uses PostgreSQL:
 - stale leases can be reclaimed
 - disconnect cancels queued/processing jobs
 
-Next.js after-processing starts low-latency best-effort work. POST /api/internal/sync/drain, protected by CRON_SECRET, drains queued work for scheduled recovery. The current repository intentionally does not include Vercel cron configuration because two Vercel projects are connected and duplicate schedules would double work. Configure one schedule only on the canonical project.
+Next.js after-processing starts low-latency best-effort work. POST /api/internal/sync/drain, protected by CRON_SECRET, starts at most five jobs and stops starting work after a 20-second budget. It also returns payload-free queue counts and removes rate-limit rows expired for at least 24 hours. GET on the same protected route reports queue/lease counts and provider-token key-version totals without draining. The repository intentionally omits Vercel cron configuration because two Vercel projects are connected and duplicate schedules would double work. Configure one schedule only on the canonical project.
 
 For larger scale or stricter delivery guarantees, keep the SyncJob contract and replace the processor with durable managed execution. Do not move provider synchronization into webhook or page requests.
 
@@ -122,7 +123,7 @@ No trading or order capability exists.
 
 ## Refresh And Disconnect
 
-Manual refresh is session-authorized, same-origin protected, process-rate-limited, and deduplicated in PostgreSQL to one window per connection. It reads stored data while the refresh runs.
+Manual refresh is session-authorized, same-origin protected, rate-limited through atomic PostgreSQL counters, and deduplicated to one window per connection. It reads stored data while the refresh runs.
 
 Disconnect policy is preserve-history:
 

@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/auth/dal";
 import { NotFoundError } from "@/data/errors";
 import { getFinancialRepository } from "@/data/get-repository";
 import {
-  rateLimit,
+  rateLimitDistributed,
   readJsonBody,
   requireSameOrigin,
   safeApiError,
@@ -18,7 +18,7 @@ export async function PATCH(
   if (originError) return originError;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  const limit = rateLimit("transaction-update", user.id, 60, 60 * 1000);
+  const limit = await rateLimitDistributed("transaction-update", user.id, 60, 60 * 1000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many updates. Try again shortly." },

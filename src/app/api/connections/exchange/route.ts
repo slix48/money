@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { getCurrentUser } from "@/auth/dal";
 import { NotFoundError } from "@/data/errors";
 import { env } from "@/lib/env";
-import { rateLimit, readJsonBody, requireSameOrigin, safeApiError } from "@/lib/security";
+import { rateLimitDistributed, readJsonBody, requireSameOrigin, safeApiError } from "@/lib/security";
 import { publicTokenExchangeSchema } from "@/lib/validation";
 
 export async function POST(request: Request) {
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   if (!env.plaidConfigured || env.demoMode) {
     return NextResponse.json({ error: "Account connection is unavailable." }, { status: 503 });
   }
-  const limit = rateLimit("plaid-token-exchange", user.id, 6, 60 * 60 * 1_000);
+  const limit = await rateLimitDistributed("plaid-token-exchange", user.id, 6, 60 * 60 * 1_000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many connection attempts. Try again later." },

@@ -6,7 +6,8 @@
     "node": "24.x"
   },
   "overrides": {
-    "deepmerge-ts": "^8.0.1"
+    "deepmerge-ts": "^8.0.1",
+    "mysql2": "3.24.3"
   },
   "scripts": {
     "dev": "next dev",
@@ -20,6 +21,7 @@
     "test:coverage": "vitest run --coverage",
     "test:visual": "node scripts/visual-check.mjs",
     "check": "npm run typecheck && npm run lint && npm run test",
+    "verify:production-env": "tsx scripts/verify-production-env.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:verify:migrations": "node scripts/verify-migrations.mjs",

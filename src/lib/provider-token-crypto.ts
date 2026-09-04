@@ -4,6 +4,16 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 const ALGORITHM = "aes-256-gcm";
 const VERSION = "v1";
 
+export interface ProviderTokenKeyring {
+  currentVersion: number;
+  keys: Readonly<Record<number, string>>;
+}
+
+export interface EncryptedProviderToken {
+  ciphertext: string;
+  keyVersion: number;
+}
+
 function decodeKey(encodedKey: string): Buffer {
   const key = /^[a-f\d]{64}$/i.test(encodedKey)
     ? Buffer.from(encodedKey, "hex")
@@ -55,4 +65,38 @@ export function decryptProviderToken(
     decipher.update(ciphertext),
     decipher.final(),
   ]).toString("utf8");
+}
+
+function keyForVersion(keyring: ProviderTokenKeyring, version: number): string {
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new Error("Invalid provider token key version");
+  }
+  const key = keyring.keys[version];
+  if (!key) throw new Error("Provider token key version is unavailable");
+  return key;
+}
+
+export function encryptProviderTokenWithKeyring(
+  token: string,
+  keyring: ProviderTokenKeyring,
+): EncryptedProviderToken {
+  return {
+    ciphertext: encryptProviderToken(
+      token,
+      keyForVersion(keyring, keyring.currentVersion),
+    ),
+    keyVersion: keyring.currentVersion,
+  };
+}
+
+export function decryptProviderTokenWithKeyring(
+  encryptedToken: string,
+  keyVersion: number | null | undefined,
+  keyring: ProviderTokenKeyring,
+): string {
+  // Connections created before key-version tracking used version 1.
+  return decryptProviderToken(
+    encryptedToken,
+    keyForVersion(keyring, keyVersion ?? 1),
+  );
 }

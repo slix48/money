@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/auth/dal";
 import { NotFoundError } from "@/data/errors";
 import { env } from "@/lib/env";
-import { rateLimit, readJsonBody, requireSameOrigin, safeApiError } from "@/lib/security";
+import { rateLimitDistributed, readJsonBody, requireSameOrigin, safeApiError } from "@/lib/security";
 import { connectionSessionSchema } from "@/lib/validation";
 
 export async function POST(request: Request) {
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  const limit = rateLimit("plaid-link-token", user.id, 10, 60 * 60 * 1_000);
+  const limit = await rateLimitDistributed("plaid-link-token", user.id, 10, 60 * 60 * 1_000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Too many connection attempts. Try again later." },

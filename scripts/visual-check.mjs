@@ -105,7 +105,13 @@ try {
   if (!(await demoConnectButton.isDisabled())) {
     throw new Error("Demo mode must not allow a real financial connection");
   }
+  for (const name of ["Download data", "Sign out everywhere"]) {
+    if (!(await page.getByRole("button", { name }).isDisabled())) {
+      throw new Error(`Demo mode must disable ${name}`);
+    }
+  }
   report.interactions.demoConnectionBoundary = "passed";
+  report.interactions.demoPrivacyBoundary = "passed";
   await page.screenshot({ path: artifactPath("settings-connected-accounts.png"), fullPage: true });
 
   await page.goto(`${baseUrl}/transactions`, { waitUntil: "domcontentloaded" });

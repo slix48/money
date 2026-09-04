@@ -2,12 +2,12 @@ import "server-only";
 import { NotFoundError } from "@/data/errors";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
-import {
-  decryptProviderToken,
-  encryptProviderToken,
-} from "@/lib/provider-token-crypto";
 import { getFinancialDataProvider } from "@/providers/registry";
 import { enqueueSyncJob } from "@/sync/sync-queue";
+import {
+  decryptProviderAccessToken,
+  encryptProviderAccessToken,
+} from "@/sync/provider-token-service";
 
 export interface ConnectionSummary {
   id: string;
@@ -78,13 +78,6 @@ export async function listFinancialConnections(
   }));
 }
 
-function requireTokenEncryptionKey(): string {
-  if (!env.PROVIDER_TOKEN_ENCRYPTION_KEY) {
-    throw new Error("Provider token encryption is not configured");
-  }
-  return env.PROVIDER_TOKEN_ENCRYPTION_KEY;
-}
-
 export async function createPlaidLinkSession(
   userId: string,
   connectionId?: string,
@@ -99,13 +92,15 @@ export async function createPlaidLinkSession(
         provider: "PLAID",
         status: { notIn: ["DISCONNECTING", "DISCONNECTED"] },
       },
-      select: { accessTokenEncrypted: true },
+      select: { id: true, accessTokenEncrypted: true, tokenKeyVersion: true },
     });
     if (!connection?.accessTokenEncrypted) throw new NotFoundError("Connection not found");
-    accessToken = decryptProviderToken(
-      connection.accessTokenEncrypted,
-      requireTokenEncryptionKey(),
-    );
+    accessToken = await decryptProviderAccessToken({
+      userId,
+      connectionId: connection.id,
+      ciphertext: connection.accessTokenEncrypted,
+      keyVersion: connection.tokenKeyVersion,
+    });
   }
   const provider = await getFinancialDataProvider("PLAID");
   return provider.createConnectionSession({
@@ -121,10 +116,7 @@ export async function exchangePlaidPublicToken(
 ): Promise<{ connectionId: string; jobId: string }> {
   const provider = await getFinancialDataProvider("PLAID");
   const exchanged = await provider.exchangePublicToken(publicToken);
-  const encrypted = encryptProviderToken(
-    exchanged.accessToken,
-    requireTokenEncryptionKey(),
-  );
+  const encrypted = encryptProviderAccessToken(exchanged.accessToken);
   const connection = await prisma.$transaction(async (database) => {
     const existing = await database.financialConnection.findUnique({
       where: {
@@ -145,8 +137,8 @@ export async function exchangePlaidPublicToken(
             providerInstitutionId: exchanged.providerInstitutionId,
             institutionName: exchanged.institutionName,
             status: "INITIAL_SYNC",
-            accessTokenEncrypted: encrypted,
-            tokenKeyVersion: 1,
+            accessTokenEncrypted: encrypted.ciphertext,
+            tokenKeyVersion: encrypted.keyVersion,
             consentExpiresAt: exchanged.consentExpiresAt,
             disconnectedAt: null,
             errorCode: null,
@@ -162,8 +154,8 @@ export async function exchangePlaidPublicToken(
             providerInstitutionId: exchanged.providerInstitutionId,
             institutionName: exchanged.institutionName,
             status: "INITIAL_SYNC",
-            accessTokenEncrypted: encrypted,
-            tokenKeyVersion: 1,
+            accessTokenEncrypted: encrypted.ciphertext,
+            tokenKeyVersion: encrypted.keyVersion,
             consentExpiresAt: exchanged.consentExpiresAt,
           },
           select: { id: true },
@@ -202,6 +194,7 @@ export async function disconnectFinancialConnection(
       id: true,
       provider: true,
       accessTokenEncrypted: true,
+      tokenKeyVersion: true,
     },
   });
   if (!connection?.accessTokenEncrypted) throw new NotFoundError("Connection not found");
@@ -212,10 +205,12 @@ export async function disconnectFinancialConnection(
   try {
     const provider = await getFinancialDataProvider(connection.provider);
     await provider.disconnect(
-      decryptProviderToken(
-        connection.accessTokenEncrypted,
-        requireTokenEncryptionKey(),
-      ),
+      await decryptProviderAccessToken({
+        userId,
+        connectionId: connection.id,
+        ciphertext: connection.accessTokenEncrypted,
+        keyVersion: connection.tokenKeyVersion,
+      }),
     );
   } catch (error) {
     await prisma.financialConnection.updateMany({

@@ -5,9 +5,9 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 ## Financial Data
 
 - Obtain Plaid production approval/credentials and complete contract, pricing, privacy, security, and subprocessor review.
-- Move the provider-token key hierarchy to managed KMS envelope encryption with rotation and recovery procedures.
-- Add queue/dead-letter operator views, freshness/health alerts, reconciliation reports, and provider incident runbooks.
-- Add consent records, user data export/deletion, retention enforcement, and verified provider-revocation operations.
+- Move the implemented versioned/lazy-rotation provider-token key ring to managed KMS envelope encryption and complete recovery procedures.
+- Add queue/dead-letter operator views beyond the protected aggregate health endpoint, freshness alerts, reconciliation reports, and provider incident runbooks.
+- Add consent records, user deletion, retention enforcement, scalable asynchronous exports, and verified provider-revocation operations.
 - Evaluate transfer/card/refund reconciliation accuracy on de-identified production-like samples and add user correction workflows where missing.
 
 ## PostgreSQL And Scale
@@ -15,7 +15,7 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 - Add paginated repository queries for long transaction and activity histories.
 - Move dashboard/insight recomputation to background summaries as data grows.
 - Validate least-privilege roles and row-level security with application, worker, migration, support, and restore workflows.
-- Add queue backlog/lease monitoring and decide from measurements whether a dedicated worker is necessary.
+- Alert on the implemented queue backlog/lease health metrics and decide from measurements whether a dedicated worker is necessary.
 
 ## Market And Brokerage Data
 
@@ -40,13 +40,13 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 
 ## Identity, Privacy, And Platform
 
-- Replace process-local limits with a shared atomic service.
-- Add passkeys/MFA, email verification, recovery, session/device management, revoke-all, and step-up authentication.
-- Add user data export/deletion, consent records, retention enforcement, provider revocation, and backup-deletion policy.
+- Add passkeys/MFA, email verification, recovery, session/device inventory, and step-up authentication; revoke-all is implemented.
+- Add user deletion, consent records, retention enforcement, provider revocation verification, backup-deletion policy, and asynchronous large-history export; immediate JSON export is implemented.
 - Configure managed secrets/KMS envelope encryption, field encryption for high-impact identifiers, TLS, encrypted backups, key rotation, restore exercises, and support access controls.
 - Add safe metrics/tracing, audit alerts, incident response, dependency/SAST/secret/container/IaC scanning, and production browser checks.
 - Replace the compatible inline CSP with nonce/hash enforcement.
 - Remove the temporary deepmerge-ts override after Prisma ships and the patched dependency is audited directly.
+- Remove the temporary mysql2 override after Prisma pins a release containing the upstream authentication and decompression fixes.
 
 ## Actions And Regulated Capabilities
 

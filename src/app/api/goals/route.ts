@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/auth/dal";
 import { NotFoundError } from "@/data/errors";
 import { getFinancialRepository } from "@/data/get-repository";
-import { rateLimit, readJsonBody, requireSameOrigin, safeApiError } from "@/lib/security";
+import { rateLimitDistributed, readJsonBody, requireSameOrigin, safeApiError } from "@/lib/security";
 import { goalCreateSchema } from "@/lib/validation";
 
 export async function POST(request: Request) {
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   if (originError) return originError;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  const limit = rateLimit("goal-create", user.id, 12, 60 * 60 * 1000);
+  const limit = await rateLimitDistributed("goal-create", user.id, 12, 60 * 60 * 1000);
   if (!limit.allowed) {
     return NextResponse.json(
       { error: "Goal creation limit reached. Try again later." },

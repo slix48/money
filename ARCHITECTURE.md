@@ -35,8 +35,9 @@ proposal -> policy -> user confirmation -> trusted provider -> audit/reconcile
 - src/providers: cursor-based bank/brokerage sync, quote provenance, external AI, subscription-action, and financial-action contracts.
 - src/sync: connection lifecycle, durable PostgreSQL queue, cursor engine, normalization/reconciliation, Prisma persistence, and read-only investment import.
 - src/auth: Argon2id passwords, opaque/signed sessions, cookies, and server-only DAL.
+- src/privacy: explicitly allowlisted user-data export and tenant-scoped session revocation.
 - src/ai: fixed read-tool catalog, deterministic planning, structured execution, and grounded answer composition.
-- src/app/api: authenticated, origin-checked, rate-limited JSON boundaries for auth, transactions, recurring records, income streams, goals/contributions, and financial questions.
+- src/app/api: authenticated, origin-checked, rate-limited JSON boundaries for auth, privacy, transactions, recurring records, income streams, goals/contributions, and financial questions.
 - src/app/api/connections and src/app/api/providers: Plaid Link exchange, tenant-scoped refresh/disconnect, signed webhooks, and protected queue recovery.
 - src/components: preserved responsive product UI, accessible charts, filters/tables, drawers/dialogs, Money Flow, and chat.
 - prisma: relational schema, tenant-integrity migrations, generated client, and idempotent development seed.
@@ -57,7 +58,7 @@ The proxy is not authorization. DAL, repository, and database constraints are th
 
 Core models:
 
-- User, Session, AuditEvent
+- User, Session, AuditEvent, RateLimitBucket
 - Account, Category, Transaction
 - FinancialConnection, ProviderAccount, SyncJob, SyncRun, UsageMetric
 - RecurringTransaction, IncomeStream
@@ -122,14 +123,13 @@ The snapshot repository is appropriate for the current dataset but is not the fi
 
 ## Deployment Direction
 
-Deploy as a Node.js service with PostgreSQL. Provider-backed modules are lazy-loaded so Vercel demo mode needs no database and derives its canonical origin from VERCEL_URL when APP_URL is absent. GitHub Actions provisions PostgreSQL and verifies zero-state migrations, the previous-to-current upgrade, seed, integration tests, static checks, unit tests, and production build. Before horizontal production scaling:
+Deploy as a Node.js service with PostgreSQL. Provider-backed modules are lazy-loaded so Vercel demo mode needs no database and derives its canonical origin from VERCEL_URL when APP_URL is absent. GitHub Actions provisions PostgreSQL and verifies zero-state migrations, the previous-to-current upgrade, seed, integration tests, the production environment contract, static checks, unit tests, and production build. Connected mode uses atomic hashed PostgreSQL rate buckets across instances; no Redis service is required. Before horizontal production scaling:
 
-- replace process-local rate limiting with a shared atomic store
 - decide whether the durable PostgreSQL queue needs a dedicated worker based on measured latency and failure rates
 - move provider token key protection to managed KMS envelope encryption
-- add observability that excludes financial payloads
+- add alerts and tracing that exclude financial payloads; aggregate queue/key-version health already exists behind the internal bearer boundary
 - validate row-level security and least-privilege database roles
-- add exports/deletion, recovery, MFA/passkeys, and session management
+- add deletion, recovery, MFA/passkeys, session/device inventory, consent, and retention automation
 
 Mobile clients should call versioned authenticated APIs over the same domain and tool services, never duplicate accounting logic.
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/auth/dal";
 import { NotFoundError } from "@/data/errors";
-import { rateLimit, requireSameOrigin, safeApiError } from "@/lib/security";
+import { rateLimitDistributed, requireSameOrigin, safeApiError } from "@/lib/security";
 import { entityIdSchema } from "@/lib/validation";
 
 export async function DELETE(
@@ -12,7 +12,7 @@ export async function DELETE(
   if (originError) return originError;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-  const limit = rateLimit("connection-disconnect", user.id, 5, 60 * 60 * 1_000);
+  const limit = await rateLimitDistributed("connection-disconnect", user.id, 5, 60 * 60 * 1_000);
   if (!limit.allowed) {
     return NextResponse.json({ error: "Too many connection changes." }, { status: 429 });
   }

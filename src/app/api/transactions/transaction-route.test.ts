@@ -4,6 +4,7 @@ import { NotFoundError } from "@/data/errors";
 const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   updateTransaction: vi.fn(),
+  rateLimitDistributed: vi.fn(),
 }));
 
 vi.mock("@/auth/dal", () => ({
@@ -13,6 +14,10 @@ vi.mock("@/data/get-repository", () => ({
   getFinancialRepository: async () => ({
     updateTransaction: mocks.updateTransaction,
   }),
+}));
+vi.mock("@/lib/security", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/security")>(),
+  rateLimitDistributed: mocks.rateLimitDistributed,
 }));
 
 import { PATCH } from "@/app/api/transactions/[id]/route";
@@ -32,6 +37,12 @@ describe("transaction mutation route", () => {
   beforeEach(() => {
     mocks.getCurrentUser.mockReset();
     mocks.updateTransaction.mockReset();
+    mocks.rateLimitDistributed.mockReset();
+    mocks.rateLimitDistributed.mockResolvedValue({
+      allowed: true,
+      remaining: 59,
+      retryAfterSeconds: 1,
+    });
     mocks.getCurrentUser.mockResolvedValue({
       id: "user-a",
       name: "User A",

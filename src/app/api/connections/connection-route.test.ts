@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   enqueueSyncJob: vi.fn(),
   disconnectFinancialConnection: vi.fn(),
+  rateLimitDistributed: vi.fn(),
 }));
 
 vi.mock("@/auth/dal", () => ({ getCurrentUser: mocks.getCurrentUser }));
@@ -14,6 +15,10 @@ vi.mock("@/sync/sync-queue", () => ({
 }));
 vi.mock("@/sync/connection-service", () => ({
   disconnectFinancialConnection: mocks.disconnectFinancialConnection,
+}));
+vi.mock("@/lib/security", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/security")>(),
+  rateLimitDistributed: mocks.rateLimitDistributed,
 }));
 
 import { DELETE } from "@/app/api/connections/[id]/route";
@@ -31,6 +36,12 @@ describe("connection ownership routes", () => {
     mocks.getCurrentUser.mockReset();
     mocks.enqueueSyncJob.mockReset();
     mocks.disconnectFinancialConnection.mockReset();
+    mocks.rateLimitDistributed.mockReset();
+    mocks.rateLimitDistributed.mockResolvedValue({
+      allowed: true,
+      remaining: 4,
+      retryAfterSeconds: 1,
+    });
     mocks.getCurrentUser.mockResolvedValue({
       id: "user-a",
       name: "User A",

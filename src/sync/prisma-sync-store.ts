@@ -3,9 +3,12 @@ import { addDays, differenceInCalendarDays } from "date-fns";
 import { normalizeMerchant, detectRecurringTransactions } from "@/domain/calculations";
 import type { CategoryName, TransactionRecord } from "@/domain/types";
 import { NotFoundError } from "@/data/errors";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { decryptProviderAccessToken } from "@/sync/provider-token-service";
-import type {
+import {
+  FinancialSyncError,
+  type
   SyncCommitInput,
   SyncCommitResult,
   SyncConnection,
@@ -79,6 +82,7 @@ export class PrismaSyncStore implements SyncStore {
         institutionName: true,
         accessTokenEncrypted: true,
         tokenKeyVersion: true,
+        tokenEncryptionScheme: true,
         syncCursor: true,
       },
     });
@@ -93,6 +97,7 @@ export class PrismaSyncStore implements SyncStore {
         connectionId: connection.id,
         ciphertext: connection.accessTokenEncrypted,
         keyVersion: connection.tokenKeyVersion,
+        encryptionScheme: connection.tokenEncryptionScheme,
       }),
       cursor: connection.syncCursor ?? undefined,
     };
@@ -137,9 +142,29 @@ export class PrismaSyncStore implements SyncStore {
   }
 
   async beginSync(connection: SyncConnection, trigger: SyncTrigger): Promise<string> {
-    return prisma.$transaction(async (database) => {
+    try {
+      return await prisma.$transaction(async (database) => {
+      const now = new Date();
+      await database.syncRun.updateMany({
+        where: {
+          financialConnectionId: connection.id,
+          userId: connection.userId,
+          status: "RUNNING",
+          startedAt: { lt: new Date(now.getTime() - 3 * 60 * 1_000) },
+        },
+        data: {
+          status: "FAILED",
+          finishedAt: now,
+          durationMs: 3 * 60 * 1_000,
+          errorCategory: "STALE_RUN",
+        },
+      });
       const owned = await database.financialConnection.updateMany({
-        where: { id: connection.id, userId: connection.userId },
+        where: {
+          id: connection.id,
+          userId: connection.userId,
+          status: { notIn: ["DISCONNECTING", "DISCONNECTED"] },
+        },
         data: {
           status: connection.cursor ? "SYNCING" : "INITIAL_SYNC",
           lastAttemptedSyncAt: new Date(),
@@ -170,11 +195,50 @@ export class PrismaSyncStore implements SyncStore {
         select: { id: true },
       });
       return run.id;
-    });
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw new FinancialSyncError({
+          category: "SYNC_CONFLICT",
+          safeCode: "SYNC_ALREADY_RUNNING",
+          safeMessage: "This connection is already synchronizing.",
+          retriable: true,
+        });
+      }
+      throw error;
+    }
   }
 
   async commitSync(input: SyncCommitInput): Promise<SyncCommitResult> {
     return prisma.$transaction(async (database) => {
+      const active = await database.financialConnection.updateMany({
+        where: {
+          id: input.connection.id,
+          userId: input.connection.userId,
+          status: { notIn: ["DISCONNECTING", "DISCONNECTED"] },
+          syncCursor: input.connection.cursor ?? null,
+        },
+        data: { lastAttemptedSyncAt: input.syncedAt },
+      });
+      const running = await database.syncRun.count({
+        where: {
+          id: input.runId,
+          userId: input.connection.userId,
+          financialConnectionId: input.connection.id,
+          status: "RUNNING",
+        },
+      });
+      if (active.count !== 1 || running !== 1) {
+        throw new FinancialSyncError({
+          category: "SYNC_CONFLICT",
+          safeCode: "STALE_SYNC_COMMIT",
+          safeMessage: "A newer connection state superseded this synchronization.",
+          retriable: false,
+        });
+      }
       const categoryRows = await database.category.findMany({
         where: { userId: input.connection.userId },
         select: { id: true, name: true },
@@ -544,7 +608,12 @@ export class PrismaSyncStore implements SyncStore {
         },
       });
       await database.financialConnection.updateMany({
-        where: { id: input.connection.id, userId: input.connection.userId },
+        where: {
+          id: input.connection.id,
+          userId: input.connection.userId,
+          status: { notIn: ["DISCONNECTING", "DISCONNECTED"] },
+          syncCursor: input.connection.cursor ?? null,
+        },
         data: {
           status,
           errorCode: input.failure.safeCode,

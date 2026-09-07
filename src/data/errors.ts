@@ -25,3 +25,24 @@ export class ExportCapacityError extends Error {
     this.name = "ExportCapacityError";
   }
 }
+
+export class PasskeyVerificationError extends Error {
+  constructor(message = "Passkey verification failed") {
+    super(message);
+    this.name = "PasskeyVerificationError";
+  }
+}
+
+export class ReauthenticationRequiredError extends Error {
+  constructor(message = "Recent multi-factor authentication required") {
+    super(message);
+    this.name = "ReauthenticationRequiredError";
+  }
+}
+
+export class AccountDeletionBlockedError extends Error {
+  constructor(message = "A connected provider could not be revoked") {
+    super(message);
+    this.name = "AccountDeletionBlockedError";
+  }
+}

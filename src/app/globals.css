@@ -1102,6 +1102,23 @@ textarea:focus-visible {
 .privacy-controls p { max-width: 48ch; margin: 0; color: var(--text-tertiary); font-size: 8px; line-height: 1.5; }
 .privacy-controls .button { min-height: 30px; margin-top: auto; padding-inline: 9px; font-size: 10px; }
 .privacy-controls .privacy-message { grid-column: 1 / -1; width: 100%; margin: 0; border-top: 1px solid var(--border); border-right: 0; }
+.privacy-controls .privacy-danger { grid-column: 1 / -1; display: grid; align-items: center; grid-template-columns: minmax(0, 1fr) auto auto; border-top: 1px solid var(--border); border-right: 0; }
+.privacy-controls .privacy-danger > div { display: block; padding: 0; border: 0; }
+.button-danger { border-color: color-mix(in srgb, var(--negative) 45%, var(--border)); color: var(--negative); background: transparent; }
+.button-danger:hover:not(:disabled) { border-color: var(--negative); background: var(--negative-soft); }
+.privacy-controls .deletion-confirmation { grid-column: 1 / -1; display: grid; align-items: end; grid-template-columns: minmax(170px, 1fr) minmax(150px, .7fr) minmax(220px, .9fr) auto auto; border-top: 1px solid var(--border); border-right: 0; }
+.privacy-controls .deletion-confirmation > div { display: block; padding: 0; border: 0; }
+.passkey-controls { padding: 0; }
+.passkey-enrollment { display: grid; align-items: end; gap: 12px; padding: 16px; grid-template-columns: auto minmax(190px, 1fr) minmax(130px, .65fr) minmax(150px, .7fr) auto; }
+.passkey-enrollment > div > strong, .passkey-row strong { display: block; color: var(--text); font-size: 10px; }
+.passkey-enrollment p { max-width: 52ch; margin: 3px 0 0; color: var(--text-tertiary); font-size: 8px; line-height: 1.5; }
+.compact-field { gap: 5px; }
+.compact-field input { min-height: 31px; }
+.passkey-list { border-top: 1px solid var(--border); }
+.passkey-row { display: grid; min-height: 58px; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); grid-template-columns: auto minmax(0, 1fr) auto; }
+.passkey-row:last-child { border-bottom: 0; }
+.passkey-row span { color: var(--text-tertiary); font-size: 8px; }
+.passkey-message { margin: 0; border-top: 1px solid var(--border); }
 
 @media (max-width: 1120px) {
   .ai-layout { grid-template-columns: minmax(0, 1fr); }
@@ -1754,6 +1771,10 @@ textarea:focus-visible {
   .privacy-controls { grid-template-columns: minmax(0, 1fr); }
   .privacy-controls > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .privacy-controls > div:nth-child(2) { border-bottom: 0; }
+  .privacy-controls .privacy-danger, .privacy-controls .deletion-confirmation { grid-template-columns: minmax(0, 1fr); }
+  .privacy-controls .privacy-danger .button, .privacy-controls .deletion-confirmation .button { width: 100%; }
+  .passkey-enrollment { align-items: stretch; grid-template-columns: auto minmax(0, 1fr); }
+  .passkey-enrollment .compact-field, .passkey-enrollment .button { grid-column: 1 / -1; }
   .settings-accounts th:nth-child(2),
   .settings-accounts td:nth-child(2),
   .settings-accounts th:nth-child(3),

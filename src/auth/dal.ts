@@ -2,13 +2,17 @@ import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { resolveSession } from "@/auth/auth-service";
+import { resolveSessionContext } from "@/auth/auth-service";
 import { SESSION_COOKIE_NAME } from "@/auth/tokens";
 
-export const getCurrentUser = cache(async () => {
+export const getCurrentSession = cache(async () => {
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
-  return resolveSession(token);
+  return resolveSessionContext(token);
 });
+
+export const getCurrentUser = cache(async () =>
+  (await getCurrentSession())?.user ?? null,
+);
 
 export async function requireUser() {
   const user = await getCurrentUser();

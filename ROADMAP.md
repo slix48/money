@@ -16,7 +16,9 @@ Recommended next hardening work:
 - Add paginated transaction read APIs and database-side dashboard aggregates before large real histories.
 - Add investment reconciliation/data-quality workflows beyond the implemented read-only holding/activity import.
 - Add goal editing/deletion with explicit unlink rules and complete focus-trapped dialogs.
-- Add passkeys/MFA, recovery, session/device inventory, privacy deletion/retention/consent, and production alerting.
+- Extend implemented passkey MFA with reviewed non-bypass recovery, verified contact channels, and session/device inventory.
+- Extend implemented provider-aware deletion with consent records, formal retention/backup expiry, scalable exports, and production alerting.
+- Schedule recurring managed-provider backup/PITR restore drills in addition to the implemented CI logical restore verification.
 - Move the versioned provider-token keys to KMS envelope encryption and complete provider production/vendor review.
 
 ## Phase 2: Real Bank And Brokerage Connections

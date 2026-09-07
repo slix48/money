@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticateCredentials, createSession } from "@/auth/auth-service";
 import { setSessionCookie } from "@/auth/cookies";
+import { env } from "@/lib/env";
 import { loginSchema } from "@/lib/validation";
 import {
   rateLimitDistributed,
@@ -30,6 +31,23 @@ export async function POST(request: Request) {
     const user = await authenticateCredentials(parsed.data.email, parsed.data.password);
     if (!user) {
       return NextResponse.json({ error: "Email or password is incorrect." }, { status: 401 });
+    }
+    if (!env.demoMode) {
+      const { beginPasskeyAuthentication } = await import(
+        "@/auth/passkey-service"
+      );
+      const ceremony = await beginPasskeyAuthentication(user.id);
+      if (ceremony) {
+        return NextResponse.json(
+          {
+            mfaRequired: true,
+            ceremonyToken: ceremony.ceremonyToken,
+            options: ceremony.options,
+            expiresAt: ceremony.expiresAt,
+          },
+          { headers: { "Cache-Control": "no-store" } },
+        );
+      }
     }
     const token = await createSession(user.id);
     const response = NextResponse.json({ user }, { headers: { "Cache-Control": "no-store" } });

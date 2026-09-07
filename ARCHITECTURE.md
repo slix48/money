@@ -34,8 +34,8 @@ proposal -> policy -> user confirmation -> trusted provider -> audit/reconcile
 - src/data: FinancialRepository plus demo and Prisma implementations. All reads and writes are scoped by authenticated user.
 - src/providers: cursor-based bank/brokerage sync, quote provenance, external AI, subscription-action, and financial-action contracts.
 - src/sync: connection lifecycle, durable PostgreSQL queue, cursor engine, normalization/reconciliation, Prisma persistence, and read-only investment import.
-- src/auth: Argon2id passwords, opaque/signed sessions, cookies, and server-only DAL.
-- src/privacy: explicitly allowlisted user-data export and tenant-scoped session revocation.
+- src/auth: Argon2id passwords, WebAuthn passkey MFA, one-use ceremonies, opaque/signed sessions, cookies, and server-only DAL.
+- src/privacy: explicitly allowlisted export, tenant-scoped session revocation, provider-aware financial-data deletion, and account deletion.
 - src/ai: fixed read-tool catalog, deterministic planning, structured execution, and grounded answer composition.
 - src/app/api: authenticated, origin-checked, rate-limited JSON boundaries for auth, privacy, transactions, recurring records, income streams, goals/contributions, and financial questions.
 - src/app/api/connections and src/app/api/providers: Plaid Link exchange, tenant-scoped refresh/disconnect, signed webhooks, and protected queue recovery.
@@ -58,7 +58,7 @@ The proxy is not authorization. DAL, repository, and database constraints are th
 
 Core models:
 
-- User, Session, AuditEvent, RateLimitBucket
+- User, Session, WebAuthnCredential, WebAuthnChallenge, AuditEvent, RateLimitBucket
 - Account, Category, Transaction
 - FinancialConnection, ProviderAccount, SyncJob, SyncRun, UsageMetric
 - RecurringTransaction, IncomeStream
@@ -70,7 +70,7 @@ Core models:
 
 Financial and AI records carry direct user ownership. Parent tables have composite id/userId keys where needed, preventing a row from referencing another tenant's parent. AIMessage ownership is copied from and constrained to its conversation.
 
-Provider metadata stays separate from MoneyOS accounts and transactions. Connection-scoped external IDs drive idempotency. Removed transactions are retained as soft removals; raw descriptions and normalized merchants are separate; user classification overrides survive provider updates. Account balances carry AVAILABLE, STALE, or UNAVAILABLE state so an outage cannot appear as a zero balance.
+Provider metadata stays separate from MoneyOS accounts and transactions. Connection-scoped external IDs drive idempotency. Removed transactions are retained as soft removals; raw descriptions and normalized merchants are separate; user classification overrides survive provider updates. Account balances carry AVAILABLE, STALE, or UNAVAILABLE state so an outage cannot appear as a zero balance. Provider ciphertext records carry both encryption scheme and key version for mixed-scheme migration. SyncRun permits one RUNNING row per connection; SyncJob stores claim/finish times for lease and latency operations.
 
 Indexes cover common user/date, user/type, user/category, merchant, pending-status, recurring-status, holding-value, and conversation access paths. Historical net worth is stored as snapshots instead of reconstructed from today's balances.
 
@@ -123,13 +123,13 @@ The snapshot repository is appropriate for the current dataset but is not the fi
 
 ## Deployment Direction
 
-Deploy as a Node.js service with PostgreSQL. Provider-backed modules are lazy-loaded so Vercel demo mode needs no database and derives its canonical origin from VERCEL_URL when APP_URL is absent. GitHub Actions provisions PostgreSQL and verifies zero-state migrations, the previous-to-current upgrade, seed, integration tests, the production environment contract, static checks, unit tests, and production build. Connected mode uses atomic hashed PostgreSQL rate buckets across instances; no Redis service is required. Before horizontal production scaling:
+Deploy as a Node.js service with PostgreSQL. Provider-backed modules are lazy-loaded so Vercel demo mode needs no database and derives its canonical origin from VERCEL_URL when APP_URL is absent. GitHub Actions provisions PostgreSQL and verifies zero-state migrations, previous-to-current upgrade, seed, logical backup restoration with integrity manifests, integration tests, the optional Plaid skip path, the production environment contract, static checks, unit tests, and production build. Connected mode uses atomic hashed PostgreSQL rate buckets across instances; no Redis service is required. Before horizontal production scaling:
 
 - decide whether the durable PostgreSQL queue needs a dedicated worker based on measured latency and failure rates
 - move provider token key protection to managed KMS envelope encryption
 - add alerts and tracing that exclude financial payloads; aggregate queue/key-version health already exists behind the internal bearer boundary
 - validate row-level security and least-privilege database roles
-- add deletion, recovery, MFA/passkeys, session/device inventory, consent, and retention automation
+- add reviewed passkey recovery, email verification, session/device inventory, consent, and legal retention/backup-expiry automation
 
 Mobile clients should call versioned authenticated APIs over the same domain and tool services, never duplicate accounting logic.
 

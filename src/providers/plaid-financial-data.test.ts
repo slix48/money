@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import type { AccountBase, Transaction } from "plaid";
@@ -68,11 +68,34 @@ describe("Plaid financial-data normalization", () => {
   });
 });
 
+describe("Plaid disconnection", () => {
+  it("treats an already-revoked access token as an idempotent success", async () => {
+    const client = {
+      itemRemove: vi.fn().mockRejectedValue({
+        response: { data: { error_code: "INVALID_ACCESS_TOKEN" } },
+      }),
+    };
+    const provider = new PlaidFinancialDataProvider(client as never);
+
+    await expect(provider.disconnect("revoked-token")).resolves.toBeUndefined();
+  });
+
+  it("continues to surface every other provider revocation failure", async () => {
+    const unavailable = {
+      response: { data: { error_code: "INTERNAL_SERVER_ERROR" } },
+    };
+    const client = { itemRemove: vi.fn().mockRejectedValue(unavailable) };
+    const provider = new PlaidFinancialDataProvider(client as never);
+
+    await expect(provider.disconnect("active-token")).rejects.toBe(unavailable);
+  });
+});
+
 describe("Plaid webhook verification", () => {
   async function signedWebhook(body: Uint8Array, issuedAt: number) {
     const { privateKey, publicKey } = await generateKeyPair("ES256");
     const publicJwk = await exportJWK(publicKey);
-    const kid = `test-key-${issuedAt}`;
+    const kid = `test-key-${issuedAt}-${randomUUID()}`;
     const token = await new SignJWT({
       request_body_sha256: createHash("sha256").update(body).digest("hex"),
     })
@@ -105,15 +128,38 @@ describe("Plaid webhook verification", () => {
     const issuedAt = Math.floor(Date.now() / 1_000);
     const { token, client } = await signedWebhook(body, issuedAt);
     const provider = new PlaidFinancialDataProvider(client as never);
-    await expect(provider.verifyWebhook(body, {
+    const first = await provider.verifyWebhook(body, {
       "plaid-verification": token,
-    })).resolves.toMatchObject({
+    });
+    expect(first).toMatchObject({
       providerItemId: "item-1",
       event: "SYNC_AVAILABLE",
     });
+    await expect(provider.verifyWebhook(body, {
+      "plaid-verification": token,
+    })).resolves.toMatchObject({ providerEventId: first.providerEventId });
     await expect(provider.verifyWebhook(Buffer.from("{}"), {
       "plaid-verification": token,
     })).rejects.toThrow("body verification failed");
+  });
+
+  it("distinguishes a later signed delivery with an identical body", async () => {
+    const body = Buffer.from(JSON.stringify({
+      webhook_type: "TRANSACTIONS",
+      webhook_code: "SYNC_UPDATES_AVAILABLE",
+      item_id: "item-1",
+    }));
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const first = await signedWebhook(body, issuedAt);
+    const second = await signedWebhook(body, issuedAt + 1);
+    const firstEvent = await new PlaidFinancialDataProvider(
+      first.client as never,
+    ).verifyWebhook(body, { "plaid-verification": first.token });
+    const secondEvent = await new PlaidFinancialDataProvider(
+      second.client as never,
+    ).verifyWebhook(body, { "plaid-verification": second.token });
+
+    expect(secondEvent.providerEventId).not.toBe(firstEvent.providerEventId);
   });
 
   it("rejects replayed signatures outside the freshness window", async () => {
@@ -128,5 +174,14 @@ describe("Plaid webhook verification", () => {
     await expect(provider.verifyWebhook(body, {
       "plaid-verification": token,
     })).rejects.toThrow("Stale");
+  });
+
+  it("rejects oversized signature headers before provider key retrieval", async () => {
+    const client = { webhookVerificationKeyGet: vi.fn() };
+    const provider = new PlaidFinancialDataProvider(client as never);
+    await expect(provider.verifyWebhook(Buffer.from("{}"), {
+      "plaid-verification": "x".repeat(4_097),
+    })).rejects.toThrow("signature header");
+    expect(client.webhookVerificationKeyGet).not.toHaveBeenCalled();
   });
 });

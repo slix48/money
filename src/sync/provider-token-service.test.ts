@@ -67,15 +67,29 @@ describe("provider token rotation service", () => {
     });
   });
 
+  it("fails closed for an unavailable encryption scheme", async () => {
+    const ciphertext = encryptProviderToken("provider-secret", mocks.currentKey);
+    await expect(decryptProviderAccessToken({
+      userId: "user-a",
+      connectionId: "connection-a",
+      ciphertext,
+      keyVersion: 2,
+      encryptionScheme: "FUTURE_KMS",
+    })).rejects.toThrow("scheme is unavailable");
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+
   it("reports only aggregate key-version health", async () => {
     mocks.groupBy.mockResolvedValue([
-      { tokenKeyVersion: 1, _count: { _all: 3 } },
-      { tokenKeyVersion: 2, _count: { _all: 5 } },
+      { tokenKeyVersion: 1, tokenEncryptionScheme: "LOCAL_AES_GCM", _count: { _all: 3 } },
+      { tokenKeyVersion: 2, tokenEncryptionScheme: "LOCAL_AES_GCM", _count: { _all: 5 } },
+      { tokenKeyVersion: 2, tokenEncryptionScheme: "FUTURE_KMS", _count: { _all: 2 } },
     ]);
     await expect(getProviderTokenRotationHealth()).resolves.toEqual({
       configured: true,
       currentVersion: 2,
-      connectionsByVersion: { 1: 3, 2: 5 },
+      connectionsByVersion: { 1: 3, 2: 7 },
+      connectionsByScheme: { LOCAL_AES_GCM: 8, FUTURE_KMS: 2 },
       remainingOnOlderVersions: 3,
     });
   });

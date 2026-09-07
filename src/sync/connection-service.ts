@@ -92,7 +92,12 @@ export async function createPlaidLinkSession(
         provider: "PLAID",
         status: { notIn: ["DISCONNECTING", "DISCONNECTED"] },
       },
-      select: { id: true, accessTokenEncrypted: true, tokenKeyVersion: true },
+      select: {
+        id: true,
+        accessTokenEncrypted: true,
+        tokenKeyVersion: true,
+        tokenEncryptionScheme: true,
+      },
     });
     if (!connection?.accessTokenEncrypted) throw new NotFoundError("Connection not found");
     accessToken = await decryptProviderAccessToken({
@@ -100,6 +105,7 @@ export async function createPlaidLinkSession(
       connectionId: connection.id,
       ciphertext: connection.accessTokenEncrypted,
       keyVersion: connection.tokenKeyVersion,
+      encryptionScheme: connection.tokenEncryptionScheme,
     });
   }
   const provider = await getFinancialDataProvider("PLAID");
@@ -118,6 +124,11 @@ export async function exchangePlaidPublicToken(
   const exchanged = await provider.exchangePublicToken(publicToken);
   const encrypted = encryptProviderAccessToken(exchanged.accessToken);
   const connection = await prisma.$transaction(async (database) => {
+    const activeUser = await database.user.findFirst({
+      where: { id: userId, deletionRequestedAt: null },
+      select: { id: true },
+    });
+    if (!activeUser) throw new NotFoundError("Connection not found");
     const existing = await database.financialConnection.findUnique({
       where: {
         provider_providerItemId: {
@@ -139,6 +150,7 @@ export async function exchangePlaidPublicToken(
             status: "INITIAL_SYNC",
             accessTokenEncrypted: encrypted.ciphertext,
             tokenKeyVersion: encrypted.keyVersion,
+            tokenEncryptionScheme: encrypted.encryptionScheme,
             consentExpiresAt: exchanged.consentExpiresAt,
             disconnectedAt: null,
             errorCode: null,
@@ -156,6 +168,7 @@ export async function exchangePlaidPublicToken(
             status: "INITIAL_SYNC",
             accessTokenEncrypted: encrypted.ciphertext,
             tokenKeyVersion: encrypted.keyVersion,
+            tokenEncryptionScheme: encrypted.encryptionScheme,
             consentExpiresAt: exchanged.consentExpiresAt,
           },
           select: { id: true },
@@ -195,6 +208,7 @@ export async function disconnectFinancialConnection(
       provider: true,
       accessTokenEncrypted: true,
       tokenKeyVersion: true,
+      tokenEncryptionScheme: true,
     },
   });
   if (!connection?.accessTokenEncrypted) throw new NotFoundError("Connection not found");
@@ -210,6 +224,7 @@ export async function disconnectFinancialConnection(
         connectionId: connection.id,
         ciphertext: connection.accessTokenEncrypted,
         keyVersion: connection.tokenKeyVersion,
+        encryptionScheme: connection.tokenEncryptionScheme,
       }),
     );
   } catch (error) {
@@ -259,7 +274,12 @@ export async function markConnectionDisconnected(
         financialConnectionId: connectionId,
         status: { in: ["QUEUED", "PROCESSING"] },
       },
-      data: { status: "FAILED", lastErrorCategory: "DISCONNECTED" },
+      data: {
+        status: "FAILED",
+        leaseExpiresAt: null,
+        finishedAt: new Date(),
+        lastErrorCategory: "DISCONNECTED",
+      },
     });
     await database.auditEvent.create({
       data: {

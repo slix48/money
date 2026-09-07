@@ -48,6 +48,7 @@ PlaidFinancialDataProvider is implemented with the official Plaid SDK:
 - Plaid's positive-outflow convention is converted at the adapter boundary
 - provider merchant/category data remains a hint and original descriptions are preserved
 - webhook JWT, key ID, issued-at window, and exact body hash are verified
+- signature/key identifiers and public-key cache are bounded; body hashes are compared in constant time
 
 PlaidBrokerageDataProvider imports read-only holdings, security metadata, and investment activity. Institution values retain source/as-of/delay state. Missing basis remains missing.
 
@@ -68,7 +69,11 @@ The implemented Plaid path provides:
 9. Bounded retry, leases, safe failure categories, freshness metadata, and provider call metrics.
 10. Provider-token revocation with history-preserving disconnect.
 
-Production still needs managed KMS key protection/rotation, operator alerts, dead-letter tooling, formal reconciliation reports, data export/deletion, retention enforcement, and provider/vendor launch approval.
+Production still needs managed KMS key protection/rotation, operator alerts, dead-letter tooling, formal reconciliation reports, legal retention/consent policy, and provider/vendor launch approval. Immediate export and provider-aware deletion are implemented for early histories.
+
+## Plaid Sandbox E2E
+
+`npm run test:plaid:sandbox` is a credentialed opt-in validator and otherwise exits with an explicit skip. It refuses production and requires an exact confirmation for a disposable `moneyos_sandbox_e2e_*` PostgreSQL database. It covers Link-token creation, Sandbox public-token exchange, encrypted connection persistence, initial transaction sync, normalized repository visibility, grounded AI account balances, Item revocation, and tenant cleanup. Optional signed webhook firing requires a publicly reachable configured webhook URL. CI relies on provider fixtures and only checks the no-credential skip path; external success cannot be claimed without supplied Plaid Sandbox credentials.
 
 Never perform a large provider sync inside a user request. The PostgreSQL queue syncs, normalizes, reconciles, persists atomically, updates freshness, and recomputes recurring/income records from a bounded 18-month history plus the current net-worth snapshot. See SYNC_ENGINE.md.
 

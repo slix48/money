@@ -16,9 +16,9 @@ V1 is deliberately read-oriented. It does not move money, trade securities, canc
 - A 29-tool read-only financial AI registry with grounded calculation receipts and scenario tools
 - Production-shaped Plaid Link, server-side token exchange, signed webhooks, incremental transaction sync, and read-only investment import behind provider-neutral contracts
 - Durable PostgreSQL sync jobs, safe retries, synchronization health UI, conservative transfer/card/refund reconciliation, and unavailable-data states
-- Real PostgreSQL migration-from-zero, migration-upgrade, seed, integration, type, lint, unit, and build verification in GitHub Actions
+- Real PostgreSQL migration-from-zero, migration-upgrade, seed, backup/restore, integration, type, lint, unit, and build verification in GitHub Actions
 - PostgreSQL/Prisma plus a provider-backed in-memory demo path with several months of realistic activity
-- Argon2id authentication, hashed opaque production sessions, revoke-all, privacy export, canonical-origin checks, shared PostgreSQL rate limits, route/repository IDOR tests, and same-tenant database constraints
+- Argon2id authentication, optional WebAuthn passkey MFA, hashed opaque production sessions, revoke-all, privacy export/deletion, canonical-origin checks, shared PostgreSQL rate limits, route/repository IDOR tests, and same-tenant database constraints
 
 ## Quick Start: Demo Mode
 
@@ -90,6 +90,8 @@ CRON_SECRET="random-bearer-secret-of-at-least-32-characters"
 
 Plaid access tokens are exchanged, encrypted, and used only on the server. Automated tests use fixtures and never depend on Plaid availability.
 
+An opt-in credentialed smoke test covers Link-token creation through normalized persistence and the AI account-balance tool. It skips by default and refuses production or a database without the `moneyos_sandbox_e2e_` prefix. See OPERATIONS.md for its exact disposable-database confirmation and webhook options.
+
 ## Vercel Demo Deployment
 
 The mock-only demo can deploy without PostgreSQL. Set these project variables for a stable hosted deployment:
@@ -112,7 +114,9 @@ Remove `DATABASE_URL` in demo mode. Blank or malformed optional values fail clos
 | `npm run check` | Run type checking, linting, and unit tests |
 | `npm run test:coverage` | Run tests with coverage |
 | `npm run test:visual` | Exercise routes and workflows in a headless installed browser |
+| `npm run test:plaid:sandbox` | Skip by default; run the guarded credentialed Sandbox E2E when explicitly enabled |
 | `npm run db:migrate` | Create/apply a Prisma development migration |
+| `npm run db:verify:restore` | Dump and restore into an explicitly confirmed empty `moneyos_restore_*` database, then compare integrity |
 | `npm run db:seed` | Seed realistic development data |
 | `npm run db:studio` | Open Prisma Studio |
 
@@ -150,6 +154,8 @@ Connected-data variables:
 | PROVIDER_TOKEN_ENCRYPTION_KEYS | Preferred with Plaid | JSON object of retained version-to-key mappings; do not combine with the legacy variable |
 | PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION | With versioned keys | Positive integer identifying the current encryption key |
 | CRON_SECRET | Plaid production/scheduled recovery | At least 32 characters; protects queue drain and aggregate health routes |
+| RUN_PLAID_SANDBOX_E2E | No | Exact `true` opts into the external Sandbox E2E; default is a safe skip |
+| PLAID_SANDBOX_DATABASE_CONFIRM | Sandbox E2E | Exact `host:port/database` confirmation for the disposable prefixed database |
 
 ## Financial Semantics
 
@@ -172,4 +178,4 @@ The assistant does not calculate by improvising prose. It selects an allowlisted
 
 ## V1 Limitations
 
-Plaid production access, a production PostgreSQL service, public webhook routing, managed KMS envelope keys, deletion/retention automation, MFA/recovery, and operational alerting still require external setup. Institution-supplied investment values may be delayed and are labeled with source/as-of state. The deterministic assistant is not an investment adviser and does not guarantee outcomes. Connected mode uses shared PostgreSQL rate limits and durable refresh/sync deduplication without another infrastructure service. See SECURITY.md, SYNC_ENGINE.md, COSTS.md, OPERATIONS.md, and TODO.md before production launch.
+Plaid production access, production PostgreSQL/PITR drills, public webhook routing, managed KMS envelope keys, legal retention/consent policy, non-bypass recovery, and operational alerting still require external setup. Institution-supplied investment values may be delayed and are labeled with source/as-of state. The deterministic assistant is not an investment adviser and does not guarantee outcomes. Connected mode uses shared PostgreSQL rate limits and durable refresh/sync deduplication without another infrastructure service. See SECURITY.md, SYNC_ENGINE.md, COSTS.md, OPERATIONS.md, and TODO.md before production launch.

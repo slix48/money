@@ -17,6 +17,7 @@ import { requireUser } from "@/auth/dal";
 import { PageHeader } from "@/components/ui/page-header";
 import { ConnectedAccounts } from "@/components/settings/connected-accounts";
 import { PrivacyControls } from "@/components/settings/privacy-controls";
+import { PasskeyControls } from "@/components/settings/passkey-controls";
 import { getFinancialRepository } from "@/data/get-repository";
 import { calculateNetWorth } from "@/domain/calculations";
 import { formatCurrency, titleCase } from "@/lib/format";
@@ -41,6 +42,15 @@ export default async function SettingsPage() {
           lastUpdatedAt: account.lastUpdatedAt.toISOString(),
         })),
       }));
+  const passkeys = env.demoMode
+    ? []
+    : (await (await import("@/auth/passkey-service")).listPasskeys(user.id)).map(
+        (passkey) => ({
+          ...passkey,
+          createdAt: passkey.createdAt.toISOString(),
+          lastUsedAt: passkey.lastUsedAt?.toISOString(),
+        }),
+      );
   return (
     <div className="page-stack settings-page">
       <PageHeader eyebrow="Workspace" title="Settings" description="Accounts, data sources, profile, and the security boundaries protecting this workspace." />
@@ -73,8 +83,13 @@ export default async function SettingsPage() {
       </section>
 
       <section className="settings-section">
+        <div className="settings-label"><KeyRound size={16} /><div><h2>Passkeys</h2><p>Phishing-resistant second factor</p></div></div>
+        <PasskeyControls initialPasskeys={passkeys} demoMode={env.demoMode} />
+      </section>
+
+      <section className="settings-section">
         <div className="settings-label"><FileDown size={16} /><div><h2>Data and privacy</h2><p>Export data and manage sessions</p></div></div>
-        <PrivacyControls demoMode={env.demoMode} />
+        <PrivacyControls demoMode={env.demoMode} userEmail={user.email} />
       </section>
 
       <section className="settings-section">

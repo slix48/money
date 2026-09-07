@@ -14,6 +14,33 @@ export interface EncryptedProviderToken {
   keyVersion: number;
 }
 
+export const LOCAL_PROVIDER_TOKEN_SCHEME = "LOCAL_AES_GCM";
+
+export interface ProviderTokenCipher {
+  readonly scheme: string;
+  readonly currentKeyVersion: number;
+  encrypt(token: string): EncryptedProviderToken;
+  decrypt(ciphertext: string, keyVersion?: number | null): string;
+}
+
+export class LocalKeyringProviderTokenCipher implements ProviderTokenCipher {
+  readonly scheme = LOCAL_PROVIDER_TOKEN_SCHEME;
+
+  constructor(private readonly keyring: ProviderTokenKeyring) {}
+
+  get currentKeyVersion(): number {
+    return this.keyring.currentVersion;
+  }
+
+  encrypt(token: string): EncryptedProviderToken {
+    return encryptProviderTokenWithKeyring(token, this.keyring);
+  }
+
+  decrypt(ciphertext: string, keyVersion?: number | null): string {
+    return decryptProviderTokenWithKeyring(ciphertext, keyVersion, this.keyring);
+  }
+}
+
 function decodeKey(encodedKey: string): Buffer {
   const key = /^[a-f\d]{64}$/i.test(encodedKey)
     ? Buffer.from(encodedKey, "hex")

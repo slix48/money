@@ -15,21 +15,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const startedAt = Date.now();
-  const [{ processSyncQueue, getSyncQueueHealth }, { pruneExpiredRateLimits }] =
+  const [
+    { processSyncQueue, getSyncQueueHealth, pruneSyncQueueHistory },
+    { pruneExpiredRateLimits },
+    { pruneExpiredAuthenticationState },
+  ] =
     await Promise.all([
       import("@/sync/sync-queue"),
       import("@/lib/security"),
+      import("@/auth/passkey-service"),
     ]);
   const processed = await processSyncQueue({ limit: 5, maxDurationMs: 20_000 });
-  const [queue, expiredRateLimitsRemoved] = await Promise.all([
+  const [queue, expiredRateLimitsRemoved, syncHistoryRemoved, authenticationStateRemoved] = await Promise.all([
     getSyncQueueHealth(),
     pruneExpiredRateLimits(),
+    pruneSyncQueueHistory(),
+    pruneExpiredAuthenticationState(),
   ]);
+  console.info(JSON.stringify({
+    event: "sync_queue_drain",
+    processed,
+    durationMs: Date.now() - startedAt,
+    queued: queue.queued,
+    processing: queue.processing,
+    failed: queue.failed,
+    staleLeases: queue.staleLeases,
+  }));
   return NextResponse.json(
     {
       processed,
       durationMs: Date.now() - startedAt,
       expiredRateLimitsRemoved,
+      syncHistoryRemoved,
+      authenticationStateRemoved,
       queue,
     },
     { headers: { "Cache-Control": "no-store" } },

@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:16-alpine
         env:
           POSTGRES_DB: moneyos
           POSTGRES_USER: moneyos
@@ -30,6 +30,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://moneyos:moneyos@localhost:5432/moneyos?schema=public
       UPGRADE_DATABASE_URL: postgresql://moneyos:moneyos@localhost:5432/moneyos_upgrade?schema=public
+      RESTORE_DATABASE_URL: postgresql://moneyos:moneyos@localhost:5432/moneyos_restore_ci?schema=public
+      RESTORE_DATABASE_CONFIRM: localhost:5432/moneyos_restore_ci
       SESSION_SECRET: ci-session-secret-at-least-32-characters
       PROVIDER_TOKEN_ENCRYPTION_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
       APP_URL: https://ci.moneyos.invalid
@@ -57,15 +59,21 @@ jobs:
       - name: Create upgrade database
         env:
           PGPASSWORD: moneyos
-        run: createdb -h localhost -U moneyos moneyos_upgrade
+        run: |
+          createdb -h localhost -U moneyos moneyos_upgrade
+          createdb -h localhost -U moneyos moneyos_restore_ci
       - name: Verify empty and upgrade migration paths
         run: npm run db:verify:migrations
       - name: Verify seed
         run: npm run db:seed
+      - name: Verify backup restoration
+        run: npm run db:verify:restore
       - name: PostgreSQL integration tests
         env:
           TEST_POSTGRES: "true"
         run: npm run test:postgres
+      - name: Verify optional Plaid Sandbox test skip path
+        run: npm run test:plaid:sandbox
       - run: npm run typecheck
       - run: npm run lint
       - name: Unit tests

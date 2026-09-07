@@ -23,11 +23,13 @@ MoneyOS handles sensitive financial metadata. These are implemented controls and
 - Session responses use Cache-Control: no-store.
 - Login and registration are origin checked and use atomic PostgreSQL limits in connected mode.
 - Users can revoke all server-side sessions; the initiating browser cookie is cleared immediately.
+- Optional passkeys add WebAuthn user verification after Argon2 password verification. Exact origin/RP checks, five-minute one-use challenges, session/tenant binding for enrollment, and counter compare-and-swap defend against replay and cross-tenant use.
+- Multiple credentials are supported. Sensitive deletion and passkey changes require password reauthentication and recent MFA when passkeys exist.
 - Demo mode uses a signed HMAC token for a public mock identity. Public demo credentials and data are not a confidentiality boundary.
 
 proxy.ts only redirects requests with no cookie. Pages and APIs validate the session in the server-only DAL.
 
-Remaining launch work: passkeys/MFA, email verification, secure recovery, session/device inventory, reauthentication for sensitive settings, credential-stuffing defense, and breached-password controls.
+Remaining launch work: email verification, a reviewed recovery path that does not bypass MFA, session/device inventory, security notifications, credential-stuffing defense, and breached-password controls. Users should enroll two passkeys; no password-only MFA bypass exists.
 
 ## Authorization And Tenant Isolation
 
@@ -64,7 +66,8 @@ The current CSP permits inline framework scripts/styles. Replace it with deploym
 - Connection, refresh, reconnect, and disconnect lookups use both session-derived userId and connection ID. Foreign IDs return the same not-found response as missing IDs.
 - Provider accounts and transactions use same-tenant composite foreign keys. The database rejects cross-user connection/account relationships even if application validation fails.
 - Plaid webhooks are bounded, validated, and verified using the provider JWT public key and exact body hash. Stale/future signatures and altered bodies fail closed.
-- Verified webhook IDs become unique queue dedupe keys. Cursor commits, account changes, and transaction changes are atomic; failed runs retain the old cursor.
+- Webhook signature/key identifiers are bounded, public-key cache growth is capped, body hashes use constant-time comparison, and replayed disconnection events are idempotently acknowledged.
+- A SHA-256 digest of the verified signed webhook envelope becomes the queue dedupe key. Exact delivery replay is suppressed, while a later independently signed notification with the same JSON body remains eligible to sync. Cursor commits, account changes, and transaction changes are atomic; failed runs retain the old cursor.
 - Sync jobs use leases and bounded retry. Safe failure categories reach the UI, not provider responses or raw error bodies.
 - Manual refresh has a shared PostgreSQL rate limit plus a durable per-connection time-window dedupe key.
 - Disconnect calls provider revocation first. Credentials are cleared only after confirmation; history is preserved and marked stale/disconnected.
@@ -116,12 +119,14 @@ Implemented:
 - no intentional financial-payload logging
 - an authenticated JSON data export with explicit field allowlists that exclude password hashes, sessions, tokens, cursors, provider Item IDs, and provider transaction IDs
 - user-controlled revocation of all server-side sessions
+- password/recent-MFA-gated financial-data and account deletion, with provider revocation required before local deletion
+- transactional tenant cleanup, including connection tokens and queued work; account deletion cascades authentication state
 
 Infrastructure must provide TLS, encrypted disks/databases/backups, managed secrets, rotation, restore testing, retention, and access audit logs.
 
 The current application token-encryption key must move to managed KMS envelope encryption before material production use. Future field/application encryption should also cover account/routing identifiers, tax/identity data, any raw provider payloads deliberately retained for reconciliation, and other high-impact identifiers. Use per-purpose keys, versioned ciphertext, rotation, and tightly scoped decrypt permissions. Passwords remain one-way hashes, not encrypted values. Searchable financial fields need a deliberate tokenization/index strategy rather than ad hoc deterministic encryption.
 
-Before connecting real data, complete privacy notices, consent records, the data inventory, purpose/retention limits, user deletion, backup deletion policy, support access controls, and vendor data-processing terms. Immediate JSON export is implemented for early histories; move it to paginated/asynchronous generation before histories can exceed serverless response limits.
+Before connecting real data, complete privacy notices, consent records, the data inventory, legal purpose/retention limits, backup deletion policy, support access controls, and vendor data-processing terms. Immediate deletion/export is implemented for early histories; move export to paginated/asynchronous generation before histories can exceed serverless response limits. Application deletion cannot instantly erase provider backups, replicas, browser downloads, or vendor records; vendor retention schedules must cover those systems.
 
 ## Auditability And Logging
 
@@ -131,7 +136,7 @@ Before action execution, define an immutable event taxonomy, event integrity/ret
 
 ## Verification
 
-The automated suite covers passwords, session/token integrity/revoke-all, provider-token encryption/tamper/rotation, credential-free privacy export, signed webhook validation, environment fail-closed behavior, canonical origin and JSON controls, distributed limits, route/repository/provider IDOR boundaries, database tenant constraints, sync idempotency/cursor rollback, pending-posted/removal lifecycles, reconciliation, disconnect preservation, accounting rules, investments, insights, and grounded AI tools. CI applies migrations to real PostgreSQL from zero and from the prior migration state.
+The automated suite covers passwords, passkey session gating/challenge replay and tenant constraints, session/token integrity/revoke-all, provider-token encryption/tamper/scheme/rotation, privacy export/deletion isolation, signed webhook validation/replay, environment fail-closed behavior, canonical origin and JSON controls, distributed limits, route/repository/provider IDOR boundaries, database tenant constraints, sync races/idempotency/cursor rollback, queue telemetry, pending-posted/removal lifecycles, reconciliation, disconnect preservation, accounting rules, investments, insights, and grounded AI tools. CI applies migrations to real PostgreSQL from zero and from the prior migration state, then proves seeded logical backup restoration.
 
 Prisma 7.10.0 pins mysql2 for its multi-database CLI even though MoneyOS uses only PostgreSQL. package.json overrides that unused adapter dependency to the patched 3.24.3 release; migration, generation, test, and build checks guard compatibility until Prisma updates its pin.
 
@@ -140,13 +145,13 @@ CI rejects known high-severity production dependency advisories. Dependabot chec
 ## Production Checklist
 
 - Independent threat model, application security review, and penetration test
-- MFA/passkeys, recovery, session inventory, reauthentication, and breached-password controls
+- Passkey recovery, email verification, session inventory, security notifications, and breached-password controls
 - Queue alerting, on-call procedures, and periodic limiter-table capacity review
 - Managed KMS envelope encryption, key rotation, and provider-token recovery tests
 - Nonce/hash CSP, dependency/SAST/secret/container/IaC scanning in CI
 - Database least privilege and validated row-level security
-- Managed secrets, encryption/key rotation, encrypted backups, and restore exercises
-- Data deletion, consent/retention controls, scalable export generation, and privacy/legal review
+- Managed secrets, KMS envelope encryption/key rotation, encrypted backups, and recurring managed-backup restore exercises
+- Consent/legal-retention controls, backup expiry, scalable export generation, and privacy/legal review
 - Vendor due diligence and applicable regulatory/compliance/partner approval
 - Action-specific threat model, policy, step-up, audit, reconciliation, and support before enabling any action
 

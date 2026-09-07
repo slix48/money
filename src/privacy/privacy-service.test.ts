@@ -68,6 +68,15 @@ describe("privacy service", () => {
     expect(query.where).toEqual({ id: "user-a" });
     expect(query.select).not.toHaveProperty("passwordHash");
     expect(query.select).not.toHaveProperty("sessions");
+    expect(query.select.webAuthnCredentials.select).toEqual({
+      name: true,
+      credentialDeviceType: true,
+      credentialBackedUp: true,
+      createdAt: true,
+      lastUsedAt: true,
+    });
+    expect(query.select.webAuthnCredentials.select).not.toHaveProperty("credentialId");
+    expect(query.select.webAuthnCredentials.select).not.toHaveProperty("publicKey");
     expect(query.select.financialConnections.select).not.toHaveProperty(
       "accessTokenEncrypted",
     );

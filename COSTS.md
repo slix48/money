@@ -40,7 +40,9 @@ Billing is explicitly out of scope in this run. A future hosted checkout provide
 - Investment holdings/activity are fetched centrally and persisted once per sync, not per UI component.
 - The assistant uses deterministic intent selection and 29 local read tools. Current AI token cost is zero.
 - Tool results are bounded aggregates; an eventual LLM never needs provider payloads or a complete transaction history.
-- The PostgreSQL SyncJob table is the initial durable queue. No always-running worker is required.
+- The PostgreSQL SyncJob table is the initial durable queue and its protected endpoint supplies aggregate health/latency metrics. No always-running worker or paid monitoring service is required.
+- Passkeys use browser WebAuthn plus the open-source SimpleWebAuthn verifier and PostgreSQL; they add no recurring service fee.
+- CI logical backup restoration uses PostgreSQL command-line tools and the existing database service; no backup-testing SaaS was added.
 - Webhook verification keys are cached briefly; no duplicate key request is made for every webhook.
 - No separate cache/database/search/streaming service is deployed.
 

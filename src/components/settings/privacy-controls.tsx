@@ -1,12 +1,30 @@
 "use client";
 
-import { Download, LoaderCircle, LogOut } from "lucide-react";
+import {
+  DatabaseZap,
+  Download,
+  LoaderCircle,
+  LogOut,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function PrivacyControls({ demoMode }: { demoMode: boolean }) {
+export function PrivacyControls({
+  demoMode,
+  userEmail,
+}: {
+  demoMode: boolean;
+  userEmail: string;
+}) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"export" | "sessions" | null>(null);
+  const [busy, setBusy] = useState<
+    "export" | "sessions" | "financial-data" | "account" | null
+  >(null);
+  const [deletion, setDeletion] = useState<"financial-data" | "account">();
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -55,6 +73,52 @@ export function PrivacyControls({ demoMode }: { demoMode: boolean }) {
     }
   }
 
+  async function deleteData(kind: "financial-data" | "account") {
+    const expected =
+      kind === "account" ? "DELETE ACCOUNT" : "DELETE FINANCIAL DATA";
+    if (confirmation !== expected) {
+      setError("Enter the exact confirmation phrase.");
+      return;
+    }
+    setBusy(kind);
+    setError(undefined);
+    setMessage(undefined);
+    try {
+      const response = await fetch(
+        kind === "account" ? "/api/privacy/account" : "/api/privacy/financial-data",
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            password,
+            confirmation,
+            ...(kind === "account" ? { email: userEmail } : {}),
+          }),
+        },
+      );
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "Deletion could not be completed.");
+      }
+      if (kind === "account") {
+        router.replace("/login");
+        router.refresh();
+        return;
+      }
+      setDeletion(undefined);
+      setPassword("");
+      setConfirmation("");
+      setMessage("Stored financial data was deleted. Your MoneyOS login remains active.");
+      router.refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Deletion could not be completed.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="panel settings-panel privacy-controls">
       <div>
@@ -85,6 +149,104 @@ export function PrivacyControls({ demoMode }: { demoMode: boolean }) {
           Sign out everywhere
         </button>
       </div>
+      <div className="privacy-danger">
+        <div>
+          <strong>Delete stored data</strong>
+          <p>
+            {demoMode
+              ? "The shared demo is temporary and cannot be deleted from this workspace."
+              : "Revoke connected providers and permanently remove imported financial records, or delete the entire MoneyOS account."}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="button button-secondary"
+          disabled={demoMode || busy !== null}
+          title={
+            demoMode
+              ? "Deletion is unavailable for temporary demo data"
+              : "Delete stored financial data"
+          }
+          onClick={() => {
+            setDeletion("financial-data");
+            setConfirmation("");
+            setError(undefined);
+          }}
+        >
+          <DatabaseZap size={14} />
+          Delete financial data
+        </button>
+        <button
+          type="button"
+          className="button button-danger"
+          disabled={demoMode || busy !== null}
+          title={
+            demoMode
+              ? "Account deletion is unavailable for the shared demo"
+              : "Delete MoneyOS account"
+          }
+          onClick={() => {
+            setDeletion("account");
+            setConfirmation("");
+            setError(undefined);
+          }}
+        >
+          <Trash2 size={14} />
+          Delete account
+        </button>
+      </div>
+      {deletion && (
+        <div className="deletion-confirmation">
+          <div>
+            <strong>
+              {deletion === "account" ? "Delete MoneyOS account" : "Delete financial data"}
+            </strong>
+            <p>Provider disconnection must succeed before local deletion. This action cannot be undone.</p>
+          </div>
+          <label className="field compact-field">
+            <span>Current password</span>
+            <input
+              type="password"
+              value={password}
+              autoComplete="current-password"
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <label className="field compact-field">
+            <span>
+              Enter {deletion === "account" ? "DELETE ACCOUNT" : "DELETE FINANCIAL DATA"}
+            </span>
+            <input
+              value={confirmation}
+              autoComplete="off"
+              onChange={(event) => setConfirmation(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="button button-danger"
+            disabled={busy !== null || password.length < 8}
+            onClick={() => void deleteData(deletion)}
+          >
+            {busy === deletion ? <LoaderCircle size={14} className="spin" /> : <Trash2 size={14} />}
+            Confirm deletion
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Cancel deletion"
+            title="Cancel"
+            disabled={busy !== null}
+            onClick={() => {
+              setDeletion(undefined);
+              setPassword("");
+              setConfirmation("");
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
       {(error || message) && (
         <p className={error ? "form-error privacy-message" : "save-success privacy-message"} role={error ? "alert" : "status"}>
           {error ?? message}

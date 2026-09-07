@@ -253,6 +253,166 @@ describe.runIf(postgresEnabled)("PostgreSQL connected-data integration", () => {
     })).rejects.toThrow();
   });
 
+  it("binds passkey ceremonies to one tenant and consumes a failed challenge once", async () => {
+    const suffix = Date.now().toString(36);
+    const [sessionA, sessionB] = await Promise.all([
+      prisma.session.create({
+        data: {
+          userId: userA,
+          tokenHash: "passkey-session-a-" + suffix,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+        select: { id: true },
+      }),
+      prisma.session.create({
+        data: {
+          userId: userB,
+          tokenHash: "passkey-session-b-" + suffix,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+        select: { id: true },
+      }),
+    ]);
+    await expect(prisma.webAuthnChallenge.create({
+      data: {
+        userId: userA,
+        sessionId: sessionB.id,
+        tokenHash: "cross-tenant-challenge-" + suffix,
+        challenge: "challenge",
+        purpose: "REGISTRATION",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    })).rejects.toThrow();
+
+    const credentialId = "postgres-passkey-" + suffix;
+    await prisma.webAuthnCredential.create({
+      data: {
+        userId: userA,
+        credentialId,
+        publicKey: Buffer.from("invalid-test-public-key"),
+        counter: 0,
+        transports: [],
+        credentialDeviceType: "singleDevice",
+        credentialBackedUp: false,
+        name: "PostgreSQL test passkey",
+      },
+    });
+    const { beginPasskeyAuthentication, finishPasskeyAuthentication } = await import(
+      "@/auth/passkey-service"
+    );
+    const { hashSessionToken } = await import("@/auth/tokens");
+    const ceremony = await beginPasskeyAuthentication(userA);
+    expect(ceremony).not.toBeNull();
+    const invalidResponse = {
+      id: credentialId,
+      rawId: credentialId,
+      type: "public-key",
+      response: {
+        clientDataJSON: "e30",
+        authenticatorData: "eA",
+        signature: "eA",
+      },
+      clientExtensionResults: {},
+    };
+    await expect(finishPasskeyAuthentication({
+      ceremonyToken: ceremony!.ceremonyToken,
+      response: invalidResponse as never,
+    })).rejects.toThrow("Passkey verification failed");
+    const consumed = await prisma.webAuthnChallenge.findUnique({
+      where: { tokenHash: hashSessionToken(ceremony!.ceremonyToken) },
+      select: { usedAt: true },
+    });
+    expect(consumed?.usedAt).toBeInstanceOf(Date);
+    await expect(finishPasskeyAuthentication({
+      ceremonyToken: ceremony!.ceremonyToken,
+      response: invalidResponse as never,
+    })).rejects.toThrow("Passkey verification failed");
+
+    await prisma.webAuthnCredential.deleteMany({ where: { userId: userA } });
+    await prisma.webAuthnChallenge.deleteMany({ where: { userId: userA } });
+    await prisma.session.deleteMany({ where: { id: { in: [sessionA.id, sessionB.id] } } });
+  });
+
+  it("permits only one active synchronization run per connection", async () => {
+    const active = await prisma.syncRun.create({
+      data: {
+        userId: userA,
+        financialConnectionId: connectionA,
+        trigger: "MANUAL",
+      },
+      select: { id: true },
+    });
+    await expect(prisma.syncRun.create({
+      data: {
+        userId: userA,
+        financialConnectionId: connectionA,
+        trigger: "WEBHOOK",
+      },
+    })).rejects.toThrow();
+    await prisma.syncRun.update({
+      where: { id: active.id },
+      data: { status: "SUCCEEDED", finishedAt: new Date(), durationMs: 1 },
+    });
+  });
+
+  it("reports queue depth, retries, stale leases, latency, and failure categories", async () => {
+    const suffix = Date.now().toString(36);
+    const now = new Date();
+    const old = new Date(now.getTime() - 10 * 60 * 1_000);
+    const jobs = await Promise.all([
+      prisma.syncJob.create({
+        data: {
+          userId: userA,
+          financialConnectionId: connectionA,
+          trigger: "MANUAL",
+          dedupeKey: "health-queued-" + suffix,
+          status: "QUEUED",
+          attempts: 1,
+          createdAt: old,
+        },
+        select: { id: true },
+      }),
+      prisma.syncJob.create({
+        data: {
+          userId: userA,
+          financialConnectionId: connectionA,
+          trigger: "WEBHOOK",
+          dedupeKey: "health-processing-" + suffix,
+          status: "PROCESSING",
+          attempts: 2,
+          claimedAt: old,
+          leaseExpiresAt: new Date(now.getTime() - 1_000),
+          createdAt: old,
+        },
+        select: { id: true },
+      }),
+      prisma.syncJob.create({
+        data: {
+          userId: userA,
+          financialConnectionId: connectionA,
+          trigger: "SCHEDULED",
+          dedupeKey: "health-failed-" + suffix,
+          status: "FAILED",
+          attempts: 3,
+          finishedAt: old,
+          lastErrorCategory: "PROVIDER_OUTAGE",
+        },
+        select: { id: true },
+      }),
+    ]);
+    const { getSyncQueueHealth } = await import("@/sync/sync-queue");
+    const health = await getSyncQueueHealth(now);
+    expect(health.queued).toBeGreaterThanOrEqual(1);
+    expect(health.processing).toBeGreaterThanOrEqual(1);
+    expect(health.failed).toBeGreaterThanOrEqual(1);
+    expect(health.retrying).toBeGreaterThanOrEqual(1);
+    expect(health.staleLeases).toBeGreaterThanOrEqual(1);
+    expect(health.oldestPendingAgeMs).toBeGreaterThanOrEqual(10 * 60 * 1_000);
+    expect(health.maxAttempts).toBeGreaterThanOrEqual(3);
+    expect(health.failureCategoriesLast7Days.PROVIDER_OUTAGE).toBeGreaterThanOrEqual(1);
+    await prisma.syncJob.deleteMany({ where: { id: { in: jobs.map((job) => job.id) } } });
+  });
+
   it("enforces rate limits atomically across concurrent PostgreSQL callers", async () => {
     const { rateLimitDistributed } = await import("@/lib/security");
     const namespace = `postgres-limit-${Date.now()}`;
@@ -309,5 +469,88 @@ describe.runIf(postgresEnabled)("PostgreSQL connected-data integration", () => {
     const connection = await prisma.financialConnection.findUnique({ where: { id: connectionA }, select: { status: true, accessTokenEncrypted: true } });
     expect(connection).toEqual({ status: "DISCONNECTED", accessTokenEncrypted: null });
     expect(await prisma.transaction.count({ where: { userId: userA, financialConnectionId: connectionA } })).toBe(countBefore);
+  });
+
+  it("deletes one account without affecting another tenant", async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: "postgres-delete-account-" + Date.now() + "@example.test",
+        name: "Delete Account Test",
+        sessions: {
+          create: {
+            tokenHash: "delete-account-session-" + Date.now(),
+            expiresAt: new Date(Date.now() + 60_000),
+          },
+        },
+      },
+      select: { id: true },
+    });
+    const { deleteUserAccount } = await import("@/privacy/privacy-service");
+    await deleteUserAccount(user.id);
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).toBeNull();
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.user.findUnique({ where: { id: userB }, select: { id: true } }))
+      .toEqual({ id: userB });
+  });
+
+  it("deletes financial data transactionally while preserving authentication", async () => {
+    const suffix = Date.now().toString(36);
+    const user = await prisma.user.create({
+      data: {
+        email: "postgres-delete-financial-" + suffix + "@example.test",
+        name: "Delete Financial Test",
+        categories: {
+          create: {
+            name: "Other",
+            kind: "OTHER",
+            color: "#000000",
+            icon: "Shapes",
+            isDefault: true,
+          },
+        },
+        sessions: {
+          create: {
+            tokenHash: "delete-financial-session-" + suffix,
+            expiresAt: new Date(Date.now() + 60_000),
+          },
+        },
+      },
+      select: { id: true },
+    });
+    const account = await prisma.account.create({
+      data: {
+        userId: user.id,
+        name: "Disposable checking",
+        institution: "Manual",
+        type: "CHECKING",
+        balance: 100,
+        lastUpdatedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    await prisma.transaction.create({
+      data: {
+        userId: user.id,
+        accountId: account.id,
+        date: new Date(),
+        merchant: "Private merchant",
+        description: "Must be deleted",
+        amount: -25,
+        transactionType: "EXPENSE",
+        source: "MANUAL",
+      },
+    });
+    const { deleteUserFinancialData } = await import("@/privacy/privacy-service");
+    await deleteUserFinancialData(user.id);
+    expect(await prisma.user.findUnique({ where: { id: user.id }, select: { id: true } }))
+      .toEqual({ id: user.id });
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(1);
+    expect(await prisma.account.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.transaction.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.category.count({ where: { userId: user.id } }))
+      .toBe((await import("@/domain/demo-data")).DEFAULT_CATEGORIES.length);
+    expect(await prisma.user.findUnique({ where: { id: userB }, select: { id: true } }))
+      .toEqual({ id: userB });
+    await prisma.user.delete({ where: { id: user.id } });
   });
 });

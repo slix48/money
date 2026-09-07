@@ -6,8 +6,8 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 
 - Obtain Plaid production approval/credentials and complete contract, pricing, privacy, security, and subprocessor review.
 - Move the implemented versioned/lazy-rotation provider-token key ring to managed KMS envelope encryption and complete recovery procedures.
-- Add queue/dead-letter operator views beyond the protected aggregate health endpoint, freshness alerts, reconciliation reports, and provider incident runbooks.
-- Add consent records, user deletion, retention enforcement, scalable asynchronous exports, and verified provider-revocation operations.
+- Add dead-letter operator workflows beyond the protected aggregate queue/latency/failure endpoint, freshness alerts, reconciliation reports, and provider incident runbooks.
+- Add consent records, legal retention/backup expiry enforcement, scalable asynchronous exports, and recurring provider-revocation audits. Immediate provider-aware deletion is implemented.
 - Evaluate transfer/card/refund reconciliation accuracy on de-identified production-like samples and add user correction workflows where missing.
 
 ## PostgreSQL And Scale
@@ -40,9 +40,9 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 
 ## Identity, Privacy, And Platform
 
-- Add passkeys/MFA, email verification, recovery, session/device inventory, and step-up authentication; revoke-all is implemented.
-- Add user deletion, consent records, retention enforcement, provider revocation verification, backup-deletion policy, and asynchronous large-history export; immediate JSON export is implemented.
-- Configure managed secrets/KMS envelope encryption, field encryption for high-impact identifiers, TLS, encrypted backups, key rotation, restore exercises, and support access controls.
+- Add email verification, reviewed passkey recovery, session/device inventory, and security notifications; passkey MFA, recent-MFA step-up, and revoke-all are implemented.
+- Add consent records, legal retention enforcement, backup-deletion policy, and asynchronous large-history export; immediate JSON export and provider-aware deletion are implemented.
+- Configure managed secrets/KMS envelope encryption, field encryption for high-impact identifiers, TLS, encrypted backups, recurring managed-provider restore exercises, and support access controls. CI logical restore verification is implemented.
 - Add safe metrics/tracing, audit alerts, incident response, dependency/SAST/secret/container/IaC scanning, and production browser checks.
 - Replace the compatible inline CSP with nonce/hash enforcement.
 - Remove the temporary deepmerge-ts override after Prisma ships and the patched dependency is audited directly.
@@ -60,4 +60,4 @@ These depend on credentials, durable production infrastructure, vendors, or regu
 
 - In Vercel, confirm money is the canonical project, compare domains/environment variables/traffic, then manually disconnect or pause the duplicate money-o9u5 project.
 - Configure the protected sync-drain schedule on only the canonical project and alert on queued/failed jobs.
-- Add production browser coverage for Plaid Sandbox Link using provider fixtures where interactive automation is not available.
+- Run the implemented opt-in Plaid Sandbox E2E with credentials and a public webhook, then add production browser coverage for interactive Link/OAuth institutions.

@@ -2,8 +2,9 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
-  decryptProviderTokenWithKeyring,
-  encryptProviderTokenWithKeyring,
+  LOCAL_PROVIDER_TOKEN_SCHEME,
+  LocalKeyringProviderTokenCipher,
+  type ProviderTokenCipher,
 } from "@/lib/provider-token-crypto";
 
 function requireKeyring() {
@@ -13,8 +14,16 @@ function requireKeyring() {
   return env.providerTokenKeyring;
 }
 
+function providerTokenCipher(): ProviderTokenCipher {
+  return new LocalKeyringProviderTokenCipher(requireKeyring());
+}
+
 export function encryptProviderAccessToken(token: string) {
-  return encryptProviderTokenWithKeyring(token, requireKeyring());
+  const cipher = providerTokenCipher();
+  return {
+    ...cipher.encrypt(token),
+    encryptionScheme: cipher.scheme,
+  };
 }
 
 export async function decryptProviderAccessToken(input: {
@@ -22,26 +31,29 @@ export async function decryptProviderAccessToken(input: {
   connectionId: string;
   ciphertext: string;
   keyVersion?: number | null;
+  encryptionScheme?: string | null;
 }): Promise<string> {
-  const keyring = requireKeyring();
-  const token = decryptProviderTokenWithKeyring(
-    input.ciphertext,
-    input.keyVersion,
-    keyring,
-  );
+  const cipher = providerTokenCipher();
+  const scheme = input.encryptionScheme ?? LOCAL_PROVIDER_TOKEN_SCHEME;
+  if (scheme !== cipher.scheme) {
+    throw new Error("Provider token encryption scheme is unavailable");
+  }
+  const token = cipher.decrypt(input.ciphertext, input.keyVersion);
   const storedVersion = input.keyVersion ?? 1;
-  if (storedVersion !== keyring.currentVersion) {
-    const rotated = encryptProviderTokenWithKeyring(token, keyring);
+  if (storedVersion !== cipher.currentKeyVersion) {
+    const rotated = cipher.encrypt(token);
     await prisma.financialConnection.updateMany({
       where: {
         id: input.connectionId,
         userId: input.userId,
         accessTokenEncrypted: input.ciphertext,
         tokenKeyVersion: input.keyVersion ?? null,
+        tokenEncryptionScheme: scheme,
       },
       data: {
         accessTokenEncrypted: rotated.ciphertext,
         tokenKeyVersion: rotated.keyVersion,
+        tokenEncryptionScheme: cipher.scheme,
       },
     });
   }
@@ -55,19 +67,31 @@ export async function getProviderTokenRotationHealth() {
       configured: false,
       currentVersion: null,
       connectionsByVersion: {},
+      connectionsByScheme: {},
       remainingOnOlderVersions: 0,
     };
   }
   const versions = await prisma.financialConnection.groupBy({
-    by: ["tokenKeyVersion"],
+    by: ["tokenEncryptionScheme", "tokenKeyVersion"],
     where: { accessTokenEncrypted: { not: null } },
     _count: { _all: true },
   });
   return {
     configured: true,
     currentVersion: keyring.currentVersion,
-    connectionsByVersion: Object.fromEntries(
-      versions.map((item) => [String(item.tokenKeyVersion ?? 1), item._count._all]),
+    connectionsByVersion: versions.reduce<Record<string, number>>((totals, item) => {
+      const version = String(item.tokenKeyVersion ?? 1);
+      totals[version] = (totals[version] ?? 0) + item._count._all;
+      return totals;
+    }, {}),
+    connectionsByScheme: Object.fromEntries(
+      Object.entries(
+        versions.reduce<Record<string, number>>((totals, item) => {
+          totals[item.tokenEncryptionScheme] =
+            (totals[item.tokenEncryptionScheme] ?? 0) + item._count._all;
+          return totals;
+        }, {}),
+      ),
     ),
     remainingOnOlderVersions: versions.reduce(
       (total, item) =>

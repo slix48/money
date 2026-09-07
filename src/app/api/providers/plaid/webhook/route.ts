@@ -40,6 +40,9 @@ export async function POST(request: Request) {
     });
     if (!connection) return NextResponse.json({ received: true });
     if (verified.event === "CONNECTION_REMOVED") {
+      if (connection.status === "DISCONNECTED") {
+        return NextResponse.json({ received: true });
+      }
       await markConnectionDisconnected(connection.userId, connection.id, "PROVIDER_REVOKED");
       return NextResponse.json({ received: true });
     }

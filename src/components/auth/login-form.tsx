@@ -3,7 +3,9 @@
 import { ArrowRight, LoaderCircle, LockKeyhole } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import { DEMO_EMAIL, DEMO_PASSWORD } from "@/domain/demo-data";
+import { safeInternalPath } from "@/lib/navigation";
 
 export function LoginForm({ demoMode }: { demoMode: boolean }) {
   const router = useRouter();
@@ -11,11 +13,13 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
   const [email, setEmail] = useState(demoMode ? DEMO_EMAIL : "");
   const [password, setPassword] = useState(demoMode ? DEMO_PASSWORD : "");
   const [pending, setPending] = useState(false);
+  const [pendingLabel, setPendingLabel] = useState("Signing in");
   const [error, setError] = useState("");
 
   async function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     setPending(true);
+    setPendingLabel("Signing in");
     setError("");
     try {
       const response = await fetch("/api/auth/login", {
@@ -23,17 +27,56 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json()) as {
+        error?: string;
+        mfaRequired?: boolean;
+        ceremonyToken?: string;
+        options?: PublicKeyCredentialRequestOptionsJSON;
+      };
       if (!response.ok) {
         setError(body.error ?? "Unable to sign in.");
         return;
       }
+      if (body.mfaRequired) {
+        if (!body.ceremonyToken || !body.options) {
+          throw new Error("Passkey verification could not be started.");
+        }
+        setPendingLabel("Waiting for passkey");
+        const { startAuthentication } = await import("@simplewebauthn/browser");
+        const assertion = await startAuthentication({ optionsJSON: body.options });
+        setPendingLabel("Verifying passkey");
+        const verification = await fetch(
+          "/api/auth/passkeys/authenticate/verify",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ceremonyToken: body.ceremonyToken,
+              response: assertion,
+            }),
+          },
+        );
+        const verificationBody = (await verification.json()) as { error?: string };
+        if (!verification.ok) {
+          setError(
+            verificationBody.error ??
+              "Passkey verification failed. Start sign-in again.",
+          );
+          return;
+        }
+      }
       const requested = searchParams.get("next");
-      const destination = requested?.startsWith("/") && !requested.startsWith("//") ? requested : "/overview";
+      const destination = safeInternalPath(requested);
       router.replace(destination);
       router.refresh();
-    } catch {
-      setError("Unable to reach MoneyOS. Try again.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error && cause.name === "NotAllowedError"
+          ? "Passkey verification was cancelled or timed out."
+          : cause instanceof Error
+            ? cause.message
+            : "Unable to reach MoneyOS. Try again.",
+      );
     } finally {
       setPending(false);
     }
@@ -81,7 +124,7 @@ export function LoginForm({ demoMode }: { demoMode: boolean }) {
       {error && <p className="form-error" role="alert">{error}</p>}
       <button className="button button-primary auth-submit" type="submit" disabled={pending}>
         {pending ? <LoaderCircle size={17} className="spin" /> : <ArrowRight size={17} />}
-        <span>{pending ? "Signing in" : demoMode ? "Open demo workspace" : "Sign in"}</span>
+        <span>{pending ? pendingLabel : demoMode ? "Open demo workspace" : "Sign in"}</span>
       </button>
       <p className="auth-legal">
         MoneyOS V1 provides tracking and analysis. It cannot move money, cancel services, or place trades.

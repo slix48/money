@@ -1,6 +1,13 @@
 import "server-only";
-import { ExportCapacityError, NotFoundError } from "@/data/errors";
+import {
+  AccountDeletionBlockedError,
+  ExportCapacityError,
+  NotFoundError,
+} from "@/data/errors";
+import { DEFAULT_CATEGORIES } from "@/domain/demo-data";
 import { prisma } from "@/lib/db";
+import { getFinancialDataProvider } from "@/providers/registry";
+import { decryptProviderAccessToken } from "@/sync/provider-token-service";
 
 export async function createUserDataExport(userId: string) {
   const [transactionCount, messageCount, auditCount] = await Promise.all([
@@ -24,6 +31,16 @@ export async function createUserDataExport(userId: string) {
       isDemo: true,
       createdAt: true,
       updatedAt: true,
+      webAuthnCredentials: {
+        select: {
+          name: true,
+          credentialDeviceType: true,
+          credentialBackedUp: true,
+          createdAt: true,
+          lastUsedAt: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
       accounts: {
         select: {
           id: true,
@@ -354,4 +371,195 @@ export async function revokeAllUserSessions(userId: string): Promise<number> {
     });
     return deleted.count;
   });
+}
+
+const categoryIcons: Record<string, string> = {
+  Housing: "House",
+  Food: "ShoppingBasket",
+  Dining: "Utensils",
+  Transportation: "Car",
+  Shopping: "ShoppingBag",
+  Entertainment: "Clapperboard",
+  Health: "HeartPulse",
+  Education: "GraduationCap",
+  Travel: "Plane",
+  Utilities: "Zap",
+  Subscriptions: "RefreshCw",
+  Insurance: "Shield",
+  Income: "WalletCards",
+  Investments: "ChartNoAxesCombined",
+  Transfers: "ArrowLeftRight",
+  Other: "Shapes",
+};
+
+async function beginUserDeletion(userId: string) {
+  return prisma.$transaction(async (database) => {
+    const started = await database.user.updateMany({
+      where: { id: userId, isDemo: false, deletionRequestedAt: null },
+      data: { deletionRequestedAt: new Date() },
+    });
+    if (started.count !== 1) throw new NotFoundError("User not found");
+    await database.syncJob.updateMany({
+      where: {
+        userId,
+        status: { in: ["QUEUED", "PROCESSING"] },
+      },
+      data: {
+        status: "FAILED",
+        leaseExpiresAt: null,
+        finishedAt: new Date(),
+        lastErrorCategory: "USER_DELETION",
+      },
+    });
+    return database.financialConnection.findMany({
+      where: {
+        userId,
+        status: { not: "DISCONNECTED" },
+      },
+      select: {
+        id: true,
+        provider: true,
+        accessTokenEncrypted: true,
+        tokenKeyVersion: true,
+        tokenEncryptionScheme: true,
+      },
+    });
+  });
+}
+
+async function releaseUserDeletion(userId: string) {
+  await prisma.user.updateMany({
+    where: { id: userId },
+    data: { deletionRequestedAt: null },
+  });
+}
+
+async function revokeConnectionsForDeletion(userId: string) {
+  const connections = await beginUserDeletion(userId);
+  try {
+    for (const connection of connections) {
+      await prisma.financialConnection.updateMany({
+        where: { id: connection.id, userId },
+        data: { status: "DISCONNECTING" },
+      });
+      if (connection.accessTokenEncrypted) {
+        const provider = await getFinancialDataProvider(connection.provider);
+        const accessToken = await decryptProviderAccessToken({
+          userId,
+          connectionId: connection.id,
+          ciphertext: connection.accessTokenEncrypted,
+          keyVersion: connection.tokenKeyVersion,
+          encryptionScheme: connection.tokenEncryptionScheme,
+        });
+        await provider.disconnect(accessToken);
+      }
+      await prisma.financialConnection.updateMany({
+        where: { id: connection.id, userId },
+        data: {
+          status: "DISCONNECTED",
+          accessTokenEncrypted: null,
+          tokenKeyVersion: null,
+          syncCursor: null,
+          disconnectedAt: new Date(),
+          errorCode: null,
+          errorMessageSafe: null,
+        },
+      });
+    }
+  } catch {
+    await releaseUserDeletion(userId);
+    throw new AccountDeletionBlockedError();
+  }
+}
+
+async function deleteOwnedFinancialRecords(
+  database: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  userId: string,
+) {
+  await database.transaction.updateMany({
+    where: { userId },
+    data: {
+      linkedAccountId: null,
+      recurringTransactionId: null,
+      refundForTransactionId: null,
+    },
+  });
+  await database.transaction.deleteMany({ where: { userId } });
+  await database.recurringTransaction.deleteMany({ where: { userId } });
+  await database.incomeStream.deleteMany({ where: { userId } });
+  await database.goalContribution.deleteMany({ where: { userId } });
+  await database.goal.deleteMany({ where: { userId } });
+  await database.holding.deleteMany({ where: { userId } });
+  await database.investmentTransaction.deleteMany({ where: { userId } });
+  await database.investmentAccount.deleteMany({ where: { userId } });
+  await database.netWorthSnapshot.deleteMany({ where: { userId } });
+  await database.providerAccount.deleteMany({ where: { userId } });
+  await database.syncJob.deleteMany({ where: { userId } });
+  await database.syncRun.deleteMany({ where: { userId } });
+  await database.financialConnection.deleteMany({ where: { userId } });
+  await database.account.deleteMany({ where: { userId } });
+  await database.insight.deleteMany({ where: { userId } });
+  await database.aIConversation.deleteMany({ where: { userId } });
+  await database.usageMetric.deleteMany({ where: { userId } });
+  await database.category.deleteMany({ where: { userId } });
+  await database.auditEvent.deleteMany({ where: { userId } });
+}
+
+export async function deleteUserFinancialData(userId: string): Promise<void> {
+  await revokeConnectionsForDeletion(userId);
+  try {
+    await prisma.$transaction(async (database) => {
+      const user = await database.user.findFirst({
+        where: { id: userId, deletionRequestedAt: { not: null } },
+        select: { id: true },
+      });
+      if (!user) throw new NotFoundError("User not found");
+      await deleteOwnedFinancialRecords(database, userId);
+      await database.category.createMany({
+        data: DEFAULT_CATEGORIES.map((category) => ({
+          userId,
+          name: category.name,
+          kind: category.kind,
+          color: category.color,
+          icon: categoryIcons[category.name] ?? "Shapes",
+          isDefault: true,
+        })),
+      });
+      await database.user.update({
+        where: { id: userId },
+        data: { deletionRequestedAt: null },
+      });
+      await database.auditEvent.create({
+        data: {
+          userId,
+          action: "FINANCIAL_DATA_DELETED",
+          entityType: "User",
+          entityId: userId,
+          metadata: { providerItemsRevoked: true },
+        },
+      });
+    }, { maxWait: 5_000, timeout: 30_000 });
+  } catch (error) {
+    await releaseUserDeletion(userId);
+    throw error;
+  }
+}
+
+export async function deleteUserAccount(userId: string): Promise<void> {
+  await revokeConnectionsForDeletion(userId);
+  try {
+    await prisma.$transaction(async (database) => {
+      const user = await database.user.findFirst({
+        where: { id: userId, deletionRequestedAt: { not: null } },
+        select: { id: true },
+      });
+      if (!user) throw new NotFoundError("User not found");
+      await deleteOwnedFinancialRecords(database, userId);
+      const deleted = await database.user.deleteMany({ where: { id: userId } });
+      if (deleted.count !== 1) throw new NotFoundError("User not found");
+    }, { maxWait: 5_000, timeout: 30_000 });
+  } catch (error) {
+    await releaseUserDeletion(userId);
+    throw error;
+  }
 }

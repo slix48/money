@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   Configuration,
   CountryCode,
@@ -50,6 +50,22 @@ const webhookKeys =
   new Map<string, { key: JWKPublicKey; cachedUntil: number }>();
 globalForWebhookKeys.moneyOsPlaidWebhookKeys = webhookKeys;
 
+const MAX_WEBHOOK_SIGNATURE_BYTES = 4_096;
+const MAX_WEBHOOK_KEY_ID_BYTES = 256;
+const MAX_CACHED_WEBHOOK_KEYS = 32;
+
+function cacheWebhookKey(keyId: string, key: JWKPublicKey): void {
+  const now = Date.now();
+  for (const [cachedId, cached] of webhookKeys) {
+    if (cached.cachedUntil <= now) webhookKeys.delete(cachedId);
+  }
+  if (!webhookKeys.has(keyId) && webhookKeys.size >= MAX_CACHED_WEBHOOK_KEYS) {
+    const oldest = webhookKeys.keys().next().value as string | undefined;
+    if (oldest) webhookKeys.delete(oldest);
+  }
+  webhookKeys.set(keyId, { key, cachedUntil: now + 10 * 60 * 1_000 });
+}
+
 function requirePlaidConfiguration() {
   if (!env.plaidConfigured || !env.PLAID_CLIENT_ID || !env.PLAID_SECRET) {
     throw new Error("Plaid is not configured");
@@ -69,6 +85,16 @@ function createPlaidClient(): PlaidClient {
       },
     }),
   );
+}
+
+function plaidErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const response = (error as { response?: unknown }).response;
+  if (!response || typeof response !== "object") return undefined;
+  const data = (response as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return undefined;
+  const code = (data as { error_code?: unknown }).error_code;
+  return typeof code === "string" ? code : undefined;
 }
 
 function dateOnly(value: string): Date {
@@ -275,8 +301,16 @@ export class PlaidFinancialDataProvider implements FinancialDataProvider {
   ): Promise<VerifiedFinancialDataWebhook> {
     const signed = headers["plaid-verification"] ?? headers["Plaid-Verification"];
     if (!signed) throw new Error("Missing Plaid webhook signature");
+    if (Buffer.byteLength(signed, "utf8") > MAX_WEBHOOK_SIGNATURE_BYTES) {
+      throw new Error("Invalid Plaid webhook signature header");
+    }
     const protectedHeader = decodeProtectedHeader(signed);
-    if (protectedHeader.alg !== "ES256" || !protectedHeader.kid) {
+    if (
+      protectedHeader.alg !== "ES256" ||
+      !protectedHeader.kid ||
+      Buffer.byteLength(protectedHeader.kid, "utf8") > MAX_WEBHOOK_KEY_ID_BYTES ||
+      !/^[A-Za-z0-9._:-]+$/.test(protectedHeader.kid)
+    ) {
       throw new Error("Invalid Plaid webhook signature header");
     }
     const cached = webhookKeys.get(protectedHeader.kid);
@@ -292,10 +326,7 @@ export class PlaidFinancialDataProvider implements FinancialDataProvider {
     ) {
       throw new Error("Invalid Plaid webhook verification key");
     }
-    webhookKeys.set(protectedHeader.kid, {
-      key,
-      cachedUntil: Date.now() + 10 * 60 * 1_000,
-    });
+    cacheWebhookKey(protectedHeader.kid, key);
     const verificationKey = await importJWK({
       alg: key.alg,
       crv: key.crv,
@@ -319,7 +350,14 @@ export class PlaidFinancialDataProvider implements FinancialDataProvider {
     }
     const expectedHash = verified.payload.request_body_sha256;
     const actualHash = createHash("sha256").update(rawBody).digest("hex");
-    if (typeof expectedHash !== "string" || expectedHash !== actualHash) {
+    const expectedHashBytes = typeof expectedHash === "string" && /^[a-f\d]{64}$/i.test(expectedHash)
+      ? Buffer.from(expectedHash, "hex")
+      : Buffer.alloc(0);
+    const actualHashBytes = Buffer.from(actualHash, "hex");
+    if (
+      expectedHashBytes.length !== actualHashBytes.length ||
+      !timingSafeEqual(expectedHashBytes, actualHashBytes)
+    ) {
       throw new Error("Plaid webhook body verification failed");
     }
     const parsed = webhookPayloadSchema.safeParse(
@@ -329,12 +367,21 @@ export class PlaidFinancialDataProvider implements FinancialDataProvider {
     return {
       providerItemId: parsed.data.item_id,
       event: webhookEvent(parsed.data.webhook_type, parsed.data.webhook_code),
-      providerEventId: actualHash,
+      // The body can be identical across legitimate notifications. Hash the
+      // verified signed envelope so only an exact delivery replay is deduped.
+      providerEventId: createHash("sha256").update(signed).digest("hex"),
       occurredAt: new Date(issuedAt * 1_000),
     };
   }
 
   async disconnect(accessToken: string): Promise<void> {
-    await this.client.itemRemove({ access_token: accessToken });
+    try {
+      await this.client.itemRemove({ access_token: accessToken });
+    } catch (error) {
+      // A previous successful removal can be followed by a local commit failure.
+      // An invalid token no longer grants provider access, so retry is complete.
+      if (plaidErrorCode(error) === "INVALID_ACCESS_TOKEN") return;
+      throw error;
+    }
   }
 }

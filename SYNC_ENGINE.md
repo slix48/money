@@ -23,7 +23,7 @@ The browser never receives an access token, Plaid secret, sync cursor, or raw pr
 
 - FinancialConnection: tenant, provider Item, encrypted token, cursor, consent/health, timestamps.
 - ProviderAccount: provider account metadata linked to a same-tenant MoneyOS Account.
-- SyncJob: durable queue state, lease, retry count, dedupe key.
+- SyncJob: durable queue state, claim/finish time, lease, retry count, dedupe key.
 - SyncRun: duration, safe outcome category, record counts, provider-call counts.
 - UsageMetric: daily aggregate request/unit counts without financial content.
 - Transaction: provider ID, raw description, normalized merchant, provider hints, override flags, removal/pending/reconciliation metadata.
@@ -32,7 +32,7 @@ Composite foreign keys prevent cross-tenant connection/account/transaction relat
 
 ## Token Handling
 
-Provider access tokens are encrypted with AES-256-GCM using 32-byte server-only keys. Ciphertext includes a format version, random nonce, and authentication tag; FinancialConnection stores the key version separately. Tokens:
+Provider access tokens are encrypted with AES-256-GCM using 32-byte server-only keys. Ciphertext includes a format version, random nonce, and authentication tag; FinancialConnection stores encryption scheme and key version separately. Tokens:
 
 - are never returned through APIs
 - are never placed in audit metadata or logs
@@ -85,9 +85,9 @@ POST /api/providers/plaid/webhook:
 3. Rejects stale or future-skewed signatures.
 4. Resolves the opaque provider Item to an internal tenant-owned connection.
 5. Deduplicates the provider event in SyncJob.
-6. Enqueues work and acknowledges promptly.
+6. Enqueues work and acknowledges promptly; repeated disconnect events are harmless.
 
-The handler never performs full synchronization inline. Verification public keys are cached for 10 minutes. Webhook payloads are validated as untrusted input and are not stored wholesale.
+The handler never performs full synchronization inline. Verification signature/key identifiers are bounded, public keys are cached for 10 minutes with a fixed maximum cache size, and exact body hashes use constant-time comparison. Webhook payloads are validated as untrusted input and are not stored wholesale.
 
 Connection-error and consent-expiry events update safe health messages. Provider-revocation events clear the token and preserve imported history.
 
@@ -96,13 +96,13 @@ Connection-error and consent-expiry events update safe health messages. Provider
 The early-stage durable queue uses PostgreSQL:
 
 - queued jobs are claimed with an expiring lease
-- duplicate webhook IDs and refresh windows share a unique dedupe key
+- exact signed-webhook replays and duplicate refresh windows share unique dedupe keys; identical bodies from later independently signed webhooks do not collide
 - retries use bounded exponential delay
 - a job is attempted at most three times
 - stale leases can be reclaimed
 - disconnect cancels queued/processing jobs
 
-Next.js after-processing starts low-latency best-effort work. POST /api/internal/sync/drain, protected by CRON_SECRET, starts at most five jobs and stops starting work after a 20-second budget. It also returns payload-free queue counts and removes rate-limit rows expired for at least 24 hours. GET on the same protected route reports queue/lease counts and provider-token key-version totals without draining. The repository intentionally omits Vercel cron configuration because two Vercel projects are connected and duplicate schedules would double work. Configure one schedule only on the canonical project.
+Next.js after-processing starts low-latency best-effort work. POST /api/internal/sync/drain, protected by CRON_SECRET, starts at most five jobs and stops starting work after a 20-second budget. It returns payload-free depth, retry, lease, pending-age, latency, and failure-category metrics; it prunes expired rate/auth state plus successful jobs after 30 days and failures after 90 days. GET reports the same queue health and provider-token scheme/key-version totals without draining. The repository intentionally omits Vercel cron configuration because two Vercel projects are connected and duplicate schedules would double work. Configure one schedule only on the canonical project.
 
 For larger scale or stricter delivery guarantees, keep the SyncJob contract and replace the processor with durable managed execution. Do not move provider synchronization into webhook or page requests.
 

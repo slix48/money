@@ -35,13 +35,27 @@ export async function authenticateCredentials(
   const { prisma } = await import("@/lib/db");
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
-    select: { id: true, name: true, email: true, isDemo: true, passwordHash: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      isDemo: true,
+      passwordHash: true,
+      deletionRequestedAt: true,
+    },
   });
-  if (!(await verifyPasswordCredential(user?.passwordHash, password)) || !user) return null;
+  if (
+    !(await verifyPasswordCredential(user?.passwordHash, password)) ||
+    !user ||
+    user.deletionRequestedAt
+  ) return null;
   return { id: user.id, name: user.name, email: user.email, isDemo: user.isDemo };
 }
 
-export async function createSession(userId: string): Promise<string> {
+export async function createSession(
+  userId: string,
+  options: { mfaVerified?: boolean } = {},
+): Promise<string> {
   if (env.demoMode) {
     if (userId !== DEMO_USER_ID) throw new Error("User not found");
     return createSignedDemoToken(userId, env.sessionSecret);
@@ -54,21 +68,32 @@ export async function createSession(userId: string): Promise<string> {
       userId,
       tokenHash: hashSessionToken(token),
       expiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000),
+      mfaVerifiedAt: options.mfaVerified ? new Date() : null,
     },
   });
   return token;
 }
 
-export async function resolveSession(token?: string): Promise<UserSummary | null> {
+export interface ResolvedSession {
+  id?: string;
+  user: UserSummary;
+  mfaVerifiedAt?: Date;
+}
+
+export async function resolveSessionContext(
+  token?: string,
+): Promise<ResolvedSession | null> {
   if (!token) return null;
   if (env.demoMode) {
     const session = verifySignedDemoToken(token, env.sessionSecret);
     if (!session || session.userId !== DEMO_USER_ID) return null;
     return {
-      id: DEMO_USER_ID,
-      name: "Alex Morgan",
-      email: DEMO_EMAIL,
-      isDemo: true,
+      user: {
+        id: DEMO_USER_ID,
+        name: "Alex Morgan",
+        email: DEMO_EMAIL,
+        isDemo: true,
+      },
     };
   }
 
@@ -79,10 +104,20 @@ export async function resolveSession(token?: string): Promise<UserSummary | null
       id: true,
       expiresAt: true,
       lastSeenAt: true,
-      user: { select: { id: true, name: true, email: true, isDemo: true } },
+      mfaVerifiedAt: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          isDemo: true,
+          deletionRequestedAt: true,
+        },
+      },
     },
   });
   if (!session) return null;
+  if (session.user.deletionRequestedAt) return null;
   if (session.expiresAt <= new Date()) {
     await prisma.session.delete({ where: { id: session.id } });
     return null;
@@ -90,7 +125,20 @@ export async function resolveSession(token?: string): Promise<UserSummary | null
   if (Date.now() - session.lastSeenAt.getTime() > 15 * 60 * 1000) {
     await prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } });
   }
-  return session.user;
+  return {
+    id: session.id,
+    user: {
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email,
+      isDemo: session.user.isDemo,
+    },
+    mfaVerifiedAt: session.mfaVerifiedAt ?? undefined,
+  };
+}
+
+export async function resolveSession(token?: string): Promise<UserSummary | null> {
+  return (await resolveSessionContext(token))?.user ?? null;
 }
 
 export async function invalidateSession(token?: string): Promise<void> {

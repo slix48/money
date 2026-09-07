@@ -54,6 +54,45 @@ export const publicTokenExchangeSchema = z.object({
   publicToken: z.string().trim().min(10).max(2_000),
 });
 
+const webAuthnResponseSchema = z.object({
+  id: z.string().min(1).max(2_048),
+  rawId: z.string().min(1).max(2_048),
+  response: z.record(z.string(), z.unknown()),
+  type: z.literal("public-key"),
+  clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
+  authenticatorAttachment: z.string().nullable().optional(),
+}).passthrough();
+
+export const passkeyRegistrationOptionsSchema = z.object({
+  password: z.string().min(8).max(128),
+});
+
+export const passkeyRegistrationVerificationSchema = z.object({
+  ceremonyToken: z.string().min(32).max(256),
+  name: z.string().trim().min(2).max(80),
+  response: webAuthnResponseSchema,
+});
+
+export const passkeyAuthenticationVerificationSchema = z.object({
+  ceremonyToken: z.string().min(32).max(256),
+  response: webAuthnResponseSchema,
+});
+
+export const passkeyDeleteSchema = z.object({
+  password: z.string().min(8).max(128),
+});
+
+export const financialDataDeletionSchema = z.object({
+  password: z.string().min(8).max(128),
+  confirmation: z.literal("DELETE FINANCIAL DATA"),
+});
+
+export const accountDeletionSchema = z.object({
+  password: z.string().min(8).max(128),
+  email: z.string().trim().email().max(254),
+  confirmation: z.literal("DELETE ACCOUNT"),
+});
+
 export const recurringUpdateSchema = z
   .object({
     status: z.enum(["ACTIVE", "POSSIBLE", "CANCELLED", "IGNORED"]).optional(),

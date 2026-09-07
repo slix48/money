@@ -188,12 +188,18 @@ enum AIMessageRole {
   SYSTEM
 }
 
+enum WebAuthnChallengePurpose {
+  REGISTRATION
+  AUTHENTICATION
+}
+
 model User {
   id                     String                  @id @default(cuid())
   email                  String                  @unique
   name                   String
   passwordHash           String?
   isDemo                 Boolean                 @default(false)
+  deletionRequestedAt    DateTime?
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   accounts               Account[]
@@ -217,6 +223,8 @@ model User {
   syncRuns               SyncRun[]
   syncJobs               SyncJob[]
   usageMetrics           UsageMetric[]
+  webAuthnCredentials    WebAuthnCredential[]
+  webAuthnChallenges     WebAuthnChallenge[]
 }
 
 model Session {
@@ -226,8 +234,11 @@ model Session {
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
+  mfaVerifiedAt DateTime?
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webAuthnChallenges WebAuthnChallenge[]
 
+  @@unique([id, userId])
   @@index([userId, expiresAt])
   @@index([expiresAt])
 }
@@ -594,6 +605,7 @@ model FinancialConnection {
   status                FinancialConnectionStatus   @default(PENDING)
   accessTokenEncrypted  String?                     @db.Text
   tokenKeyVersion       Int?
+  tokenEncryptionScheme String                      @default("LOCAL_AES_GCM") @db.VarChar(32)
   syncCursor            String?                     @db.Text
   consentExpiresAt      DateTime?
   lastSuccessfulSyncAt  DateTime?
@@ -673,6 +685,8 @@ model SyncJob {
   attempts              Int                 @default(0)
   availableAt           DateTime            @default(now())
   leaseExpiresAt        DateTime?
+  claimedAt             DateTime?
+  finishedAt            DateTime?
   lastErrorCategory     String?             @db.VarChar(80)
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
@@ -682,6 +696,41 @@ model SyncJob {
   @@index([status, availableAt])
   @@index([userId, createdAt(sort: Desc)])
   @@index([financialConnectionId, status])
+}
+
+model WebAuthnCredential {
+  id                   String   @id @default(cuid())
+  userId               String
+  credentialId         String   @unique
+  publicKey             Bytes
+  counter               BigInt   @default(0)
+  transports            String[]
+  credentialDeviceType String   @db.VarChar(20)
+  credentialBackedUp   Boolean
+  name                  String   @db.VarChar(80)
+  createdAt             DateTime @default(now())
+  lastUsedAt            DateTime?
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([id, userId])
+  @@index([userId, createdAt])
+}
+
+model WebAuthnChallenge {
+  id        String                    @id @default(cuid())
+  userId    String
+  sessionId String?
+  tokenHash String                    @unique @db.VarChar(64)
+  challenge String                    @db.VarChar(512)
+  purpose   WebAuthnChallengePurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime                  @default(now())
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session   Session?                  @relation(fields: [sessionId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@index([userId, purpose, expiresAt])
+  @@index([expiresAt])
 }
 
 model UsageMetric {
